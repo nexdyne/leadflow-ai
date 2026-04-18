@@ -1,0 +1,46 @@
+import { Router } from 'express';
+import { requireAuth } from '../middleware/auth.js';
+import {
+  getDashboard, getAnalytics, getRevenue,
+  listUsers, getUser, suspendUser, reactivateUser, deleteUser, resetUserPassword,
+  listOrganizations, updateOrganization,
+  listAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
+  listAuditLogs,
+  getActiveAnnouncements, dismissAnnouncement,
+} from '../controllers/platformAdminController.js';
+
+const router = Router();
+
+// All routes require auth
+router.use(requireAuth);
+
+// ─── Dashboard & Analytics ──────────────────────────────
+router.get('/dashboard', getDashboard);
+router.get('/analytics', getAnalytics);
+router.get('/revenue', getRevenue);
+
+// ─── User Management ────────────────────────────────────
+router.get('/users', listUsers);
+router.get('/users/:id', getUser);
+router.put('/users/:id/suspend', suspendUser);
+router.put('/users/:id/reactivate', reactivateUser);
+router.put('/users/:id/reset-password', resetUserPassword);
+router.delete('/users/:id', deleteUser);
+
+// ─── Organization Management ────────────────────────────
+router.get('/organizations', listOrganizations);
+router.put('/organizations/:id', updateOrganization);
+
+// ─── Announcements ──────────────────────────────────────
+// IMPORTANT: /active must come before /:id to avoid param capture
+router.get('/announcements/active', getActiveAnnouncements);
+router.get('/announcements', listAnnouncements);
+router.post('/announcements', createAnnouncement);
+router.put('/announcements/:id', updateAnnouncement);
+router.delete('/announcements/:id', deleteAnnouncement);
+router.post('/announcements/:id/dismiss', dismissAnnouncement);
+
+// ─── Audit Logs ─────────────────────────────────────────
+router.get('/audit-logs', listAuditLogs);
+
+export default router;

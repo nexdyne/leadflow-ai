@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist2
+dist3
+dist-ssr
+
+# Environment files (secrets!)
+.env
+.env.local
+*.local
+
+# Photo uploads (stored on disk, not in git)
+server/uploads/projects/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.sw?
+
+# Vite cache
+.vite
+
+# GitHub Actions (PAT lacks workflow scope)
+.github/
+
+# Backup files
+*.bak
