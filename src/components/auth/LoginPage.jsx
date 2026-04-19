@@ -55,11 +55,11 @@ export default function LoginPage({ onForgotPassword }) {
                       marginBottom: '4px',
         }}>
                                                     LeadFlow AI
-                                      </div>div>
+                                      </div>
                                       <div style={{ color: '#718096', fontSize: '14px' }}>
                                                     Michigan LIRA-EBL Inspection Platform
-                                      </div>div>
-                          </div>div>
+                                      </div>
+                          </div>
 
                   {/* Tab Toggle */}
                           <div style={{
@@ -85,7 +85,7 @@ export default function LoginPage({ onForgotPassword }) {
                                                     }}
                                                   >
                                                   Sign In
-                                      </button>button>
+                                      </button>
                                     <button
                                                   onClick={() => { setIsRegister(true); setError(''); }}
                                                   style={{
@@ -102,8 +102,8 @@ export default function LoginPage({ onForgotPassword }) {
                                                   }}
                                                 >
                                                 Create Account
-                                    </button>button>
-                          </div>div>
+                                    </button>
+                          </div>
                 
                   {/* Error */}
                   {error && (
@@ -116,14 +116,14 @@ export default function LoginPage({ onForgotPassword }) {
                                   marginBottom: '16px',
                     }}>
                       {error}
-                    </div>div>
+                    </div>
                         )}
                 
                   {/* Form */}
                         <form onSubmit={handleSubmit}>
                           {isRegister && (
                       <>
-                                    <label style={labelStyle}>Full Name</label>label>
+                                    <label style={labelStyle}>Full Name</label>
                                     <input
                                                       type="text"
                                                       value={fullName}
@@ -131,7 +131,7 @@ export default function LoginPage({ onForgotPassword }) {
                                                       placeholder="John Smith"
                                                       style={inputStyle}
                                                     />
-                                    <label style={labelStyle}>Company Name</label>label>
+                                    <label style={labelStyle}>Company Name</label>
                                     <input
                                                       type="text"
                                                       value={companyName}
@@ -141,7 +141,7 @@ export default function LoginPage({ onForgotPassword }) {
                                                     />
                       </>>
                     )}
-                                  <label style={labelStyle}>Email</label>label>
+                                  <label style={labelStyle}>Email</label>
                                   <input
                                                 type="email"
                                                 value={email}
@@ -150,7 +150,7 @@ export default function LoginPage({ onForgotPassword }) {
                                                 required
                                                 style={inputStyle}
                                               />
-                                  <label style={labelStyle}>Password</label>label>
+                                  <label style={labelStyle}>Password</label>
                                   <input
                                                 type="password"
                                                 value={password}
@@ -179,7 +179,7 @@ export default function LoginPage({ onForgotPassword }) {
                                                 }}
                                               >
                                     {loading ? 'Please wait...' : (isRegister ? 'Create Account' : 'Sign In')}
-                                  </button>button>
+                                  </button>
                         
                           {!isRegister && onForgotPassword && (
                       <div style={{ textAlign: 'center', marginTop: '16px' }}>
@@ -198,12 +198,12 @@ export default function LoginPage({ onForgotPassword }) {
                                                       }}
                                                     >
                                                     Forgot password?
-                                    </button>button>
-                      </div>div>
+                                    </button>
+                      </div>
                                   )}
-                        </form>form>
-                </div>div>
-        </div>div>
+                        </form>
+                </div>
+        </div>
       );
 }
 
