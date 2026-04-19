@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth.jsx';
 
-export default function LoginPage({ onForgotPassword }) {
+export default function LoginPage({ isClientPortal, onPortalSwitch, onPlatformSwitch, onForgotPassword }) {
     const { login, register } = useAuth();
     const [isRegister, setIsRegister] = useState(false);
     const [email, setEmail] = useState('');
@@ -57,11 +57,11 @@ export default function LoginPage({ onForgotPassword }) {
                                                     LeadFlow AI
                                       </div>
                                       <div style={{ color: '#718096', fontSize: '14px' }}>
-                                                    Michigan LIRA-EBL Inspection Platform
+                                                    {isClientPortal ? 'Client Portal - View Your Inspection' : 'Michigan LIRA-EBL Inspection Platform'}
                                       </div>
                           </div>
 
-                  {/* Tab Toggle */}
+                  {/* Inspector Portal Toggle */} {onPortalSwitch && (<div style={{display:'flex',background:'#e6f0fa',borderRadius:'8px',padding:'4px',marginBottom:'16px'}}><button type="button" onClick={() => { if (isClientPortal) onPortalSwitch(); }} style={{flex:1,padding:'8px',border:'none',borderRadius:'6px',background:!isClientPortal?'#fff':'transparent',color:!isClientPortal?'#1a365d':'#718096',fontWeight:!isClientPortal?'600':'400',fontSize:'13px',cursor:'pointer',boxShadow:!isClientPortal?'0 1px 3px rgba(0,0,0,0.1)':'none',transition:'all 0.2s'}}>Inspector</button><button type="button" onClick={() => { if (!isClientPortal) onPortalSwitch(); }} style={{flex:1,padding:'8px',border:'none',borderRadius:'6px',background:isClientPortal?'#fff':'transparent',color:isClientPortal?'#1a365d':'#718096',fontWeight:isClientPortal?'600':'400',fontSize:'13px',cursor:'pointer',boxShadow:isClientPortal?'0 1px 3px rgba(0,0,0,0.1)':'none',transition:'all 0.2s'}}>Customer</button></div>)} {/* Tab Toggle */}
                           <div style={{
                     display: 'flex',
                     background: '#edf2f7',
@@ -201,7 +201,7 @@ export default function LoginPage({ onForgotPassword }) {
                                     </button>
                       </div>
                                   )}
-                        </form>
+                        </form>{onPlatformSwitch && (<div style={{textAlign:'center',marginTop:'16px',paddingTop:'12px',borderTop:'1px solid #edf2f7'}}><button type="button" onClick={onPlatformSwitch} style={{background:'none',border:'none',color:'#90cdf4',fontSize:'11px',fontWeight:'500',cursor:'pointer',textDecoration:'underline',padding:'2px 6px',opacity:0.75}}>Platform Admin</button></div>)}
                 </div>
         </div>
       );
