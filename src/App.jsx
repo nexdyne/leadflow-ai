@@ -70,6 +70,10 @@ function getVerifyEmailToken() {
   return null;
 }
 
+function isForgotPasswordPath() {
+  return window.location.pathname === '/forgot-password';
+}
+
 function isLoginPath() {
   return window.location.pathname === '/login';
 }
@@ -115,6 +119,7 @@ function AppContent() {
     if (isPortalPath()) setPortalMode(true);
     if (isAdminPath()) setPlatformLoginMode(true);
     if (isLoginPath()) setLoginMode(true);
+    if (isForgotPasswordPath()) setForgotPasswordMode(true);
     const resetToken = getResetPasswordToken();
     if (resetToken) setResetPasswordToken(resetToken);
     const verifyToken = getVerifyEmailToken();
