@@ -139,7 +139,7 @@ export default function LoginPage({ onForgotPassword }) {
                                                       placeholder="Smith Environmental LLC"
                                                       style={inputStyle}
                                                     />
-                      </>>
+                      </>
                     )}
                                   <label style={labelStyle}>Email</label>
                                   <input
