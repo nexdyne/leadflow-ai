@@ -425,7 +425,7 @@ function MichiganRegistryPanel({ state, dispatch }) {
       {/* Form Reference Banner */}
       <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4">
         <p className="text-sm text-blue-900">
-          <strong>Michigan Lead Information Registry</strong> — Per Michigan Lead Abatement Act (Act 219 of 1986) | LIRA-EBL Form 633775 V.3
+          <strong>Michigan Lead Information Registry</strong> — Per Michigan Lead Abatement Act (Act 368 of 1978, Part 54A) | LIRA-EBL Form 633775 V.3
         </p>
       </div>
 

@@ -382,7 +382,7 @@ export function generateDisclosureLanguage(state) {
 
   // Michigan-specific citation
   disclosure += `Michigan Lead-Based Paint Assessment Notification:\n`;
-  disclosure += `This inspection was conducted in accordance with Michigan Lead Abatement Act (Public Act 219 of 1986) and Michigan Administrative Rules R 325.9901 through R 325.9975. `;
+  disclosure += `This inspection was conducted in accordance with the Michigan Lead Abatement Act (Public Health Code, Act 368 of 1978, Part 54A, MCL 333.5451 – 333.5477) and Michigan Administrative Rules R 325.99101 – R 325.99403. `;
   disclosure += `This property has been assessed for lead-based paint in accordance with Michigan Lead-Based Paint Assessment Standards (LIRA-EBL). `;
   disclosure += `All XRF testing, dust wipe sampling, and soil testing were conducted by a Michigan-licensed lead-based paint inspector using EPA-approved methods. `;
   disclosure += `Hazard assessment and recommendations follow HUD Chapter 11 standards and 40 CFR Part 745 requirements.\n\n`;
