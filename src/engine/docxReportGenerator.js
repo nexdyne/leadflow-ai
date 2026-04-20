@@ -199,6 +199,217 @@ function buildPropertyDescription(projectInfo) {
   ];
 }
 
+function buildSiteLocationMap(projectInfo, imageData) {
+  var children = [
+    buildSectionHeading('SITE LOCATION MAP'),
+    buildLabelValue('Property Address', projectInfo.propertyAddress + ', ' + projectInfo.city + ', MI ' + projectInfo.zip),
+  ];
+
+  try {
+    // imageData is a base64 data URL — strip the prefix
+    var base64 = imageData.replace(/^data:image\/\w+;base64,/, '');
+    var imageBuffer = Uint8Array.from(atob(base64), function(c) { return c.charCodeAt(0); });
+
+    children.push(new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 200, after: 200 },
+      children: [
+        new ImageRun({
+          data: imageBuffer,
+          transformation: { width: 550, height: 400 },
+          type: 'png',
+        }),
+      ],
+    }));
+
+    children.push(new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 120 },
+      children: [new TextRun({ text: 'Figure: Site location map — ' + projectInfo.propertyAddress, italics: true, font: 'Arial', size: 18, color: '666666' })],
+    }));
+  } catch (e) {
+    children.push(buildBodyText('Site location map could not be generated. Include a printed map in the report appendix.'));
+  }
+
+  children.push(new Paragraph({ children: [new PageBreak()] }));
+  return children;
+}
+
+function buildBuildingConditionSurvey(survey) {
+  if (!survey || Object.keys(survey).length === 0) {
+    return [
+      buildSectionHeading('BUILDING CONDITION SURVEY'),
+      buildBodyText('Building condition survey was not completed for this inspection.'),
+      new Paragraph({ spacing: { after: 200 }, children: [] }),
+    ];
+  }
+
+  var LABELS = {
+    propertyType: 'Property Type', numberOfUnits: 'Number of Units', numberOfFloors: 'Number of Floors',
+    yearBuilt: 'Year Built', squareFootage: 'Square Footage', constructionType: 'Construction Type',
+    foundationType: 'Foundation Type', heatingType: 'Heating Type', occupied: 'Occupied',
+    childrenUnder6Present: 'Children Under 6 Present',
+    roofCondition: 'Roof Condition', roofType: 'Roof Type', guttersCondition: 'Gutters/Downspouts',
+    exteriorWallCondition: 'Exterior Wall Condition', exteriorWallMaterial: 'Exterior Wall Material',
+    exteriorPaintCondition: 'Exterior Paint Condition',
+    exteriorDeterioratedPaintSqFt: 'Exterior Deteriorated Paint Area (sq ft)',
+    soffitFasciaCondition: 'Soffit/Fascia/Eaves Condition',
+    windowCondition: 'Window Condition',
+    windowType: 'Window Type', windowFrameMaterial: 'Window Frame Material',
+    windowFrictionSurfaces: 'Window Friction Surfaces (EPA)',
+    porchCondition: 'Porch/Deck Condition', porchPaintCondition: 'Porch Paint Condition',
+    garageOutbuildingPresent: 'Garage/Outbuilding Present',
+    garageOutbuildingCondition: 'Garage/Outbuilding Condition',
+    soilCondition: 'Soil Condition',
+    visiblePaintChipsDebris: 'Visible Paint Chips/Debris on Ground',
+    drivewaySidewalkCondition: 'Driveway/Sidewalk',
+    interiorWallCondition: 'Interior Wall Condition', interiorWallMaterial: 'Interior Wall Material',
+    ceilingCondition: 'Ceiling Condition', floorCondition: 'Floor Condition',
+    trimCondition: 'Trim/Woodwork Condition', doorCondition: 'Door Condition',
+    doorFrictionSurfaces: 'Door Friction/Impact Surfaces (EPA)',
+    stairCondition: 'Stair Condition',
+    interiorDeterioratedPaintSqFt: 'Interior Deteriorated Paint Area (sq ft/room)',
+    plumbingCondition: 'Plumbing Condition',
+    waterDamagePresent: 'Water Damage',
+    waterDamageLocations: 'Water Damage Locations', moistureProblem: 'Moisture Problems',
+    visibleMoldPresent: 'Visible Mold', peelingPaintInterior: 'Interior Peeling Paint',
+    chalkingPaintPresent: 'Chalking Paint',
+    visibleDustChipsInterior: 'Visible Dust/Paint Chips Interior',
+    commonAreaHallway: 'Common Area Hallway', commonAreaStairwell: 'Common Area Stairwell',
+    commonAreaLaundry: 'Common Area Laundry', commonAreaPaintCondition: 'Common Area Paint',
+    additionalNotes: 'Additional Notes',
+  };
+
+  var SECTIONS = [
+    { title: 'General Property Information', keys: ['propertyType','numberOfUnits','numberOfFloors','yearBuilt','squareFootage','constructionType','foundationType','heatingType','occupied','childrenUnder6Present'] },
+    { title: 'Exterior Condition', keys: ['roofCondition','roofType','guttersCondition','exteriorWallCondition','exteriorWallMaterial','exteriorPaintCondition','exteriorDeterioratedPaintSqFt','soffitFasciaCondition','windowCondition','windowType','windowFrameMaterial','windowFrictionSurfaces','porchCondition','porchPaintCondition','garageOutbuildingPresent','garageOutbuildingCondition','soilCondition','visiblePaintChipsDebris','drivewaySidewalkCondition'] },
+    { title: 'Interior General Condition', keys: ['interiorWallCondition','interiorWallMaterial','ceilingCondition','floorCondition','trimCondition','doorCondition','doorFrictionSurfaces','stairCondition','interiorDeterioratedPaintSqFt','plumbingCondition','waterDamagePresent','waterDamageLocations','moistureProblem','visibleMoldPresent','peelingPaintInterior','chalkingPaintPresent','visibleDustChipsInterior'] },
+    { title: 'Common Areas', keys: ['commonAreaHallway','commonAreaStairwell','commonAreaLaundry','commonAreaPaintCondition'] },
+  ];
+
+  var children = [buildSectionHeading('BUILDING CONDITION SURVEY')];
+
+  SECTIONS.forEach(function(section) {
+    children.push(buildSubHeading(section.title));
+    var rows = [new TableRow({ children: [headerCell('Item', 4000), headerCell('Condition / Value', 5800)] })];
+    section.keys.forEach(function(key) {
+      if (survey[key]) {
+        rows.push(new TableRow({ children: [dataCell(LABELS[key] || key, 4000, { bold: true }), dataCell(String(survey[key]), 5800)] }));
+      }
+    });
+    if (rows.length > 1) {
+      children.push(new Table({ width: { size: 9800, type: WidthType.DXA }, rows: rows }));
+      children.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
+    }
+  });
+
+  if (survey.additionalNotes) {
+    children.push(buildSubHeading('Additional Observations'));
+    children.push(buildBodyText(survey.additionalNotes));
+  }
+  if (survey.recommendedFollowUp && survey.recommendedFollowUp.length > 0) {
+    children.push(buildSubHeading('Recommended Follow-Up'));
+    children.push(buildBodyText(survey.recommendedFollowUp.join(', ')));
+  }
+
+  children.push(new Paragraph({ children: [new PageBreak()] }));
+  return children;
+}
+
+function buildResidentInterviewSection(interview) {
+  if (!interview || Object.keys(interview).length === 0) {
+    return [
+      buildSectionHeading('RESIDENT INTERVIEW'),
+      buildBodyText('Resident interview was not completed for this inspection.'),
+      new Paragraph({ spacing: { after: 200 }, children: [] }),
+    ];
+  }
+
+  var LABELS = {
+    interviewDate: 'Interview Date', intervieweeName: 'Interviewee Name',
+    intervieweeRelationship: 'Relationship', numberOfOccupants: 'Number of Occupants',
+    numberOfChildrenUnder6: 'Children Under 6', childrenAges: 'Children Ages',
+    pregnantWomenPresent: 'Pregnant Women Present', lengthOfResidency: 'Length of Residency',
+    childrenPrimaryPlayAreas: 'Primary Play Areas', childrenPlayOutside: 'Children Play Outside',
+    outsidePlayAreas: 'Outside Play Areas', childrenPutThingsInMouth: 'Mouthing Behavior',
+    childChewsWindowsills: 'Chews Windowsills', childChewsPaintedSurfaces: 'Chews Painted Surfaces',
+    childPlaysNearWindowsWells: 'Plays Near Window Wells', childContactsBareSoil: 'Contacts Bare Soil',
+    childEatsOutside: 'Eats Outside', childWashesHandsBeforeEating: 'Hand Washing',
+    childPicaBehavior: 'Pica Behavior (non-food items)', picaDetails: 'Pica Details',
+    childCaredOutsideHome: 'Child Cared For Outside Home', outsideCareDetails: 'Outside Care Details',
+    floorTypeChildAreas: 'Floor Type in Child Play Areas',
+    childEverTestedForLead: 'Child Tested for Lead', testResults: 'Test Results (BLL)',
+    childOnMedicaid: 'Child on Medicaid', healthConcernsReported: 'Health Concerns',
+    healthConcernsDetails: 'Health Details', occupationalLeadExposure: 'Occupational Lead Exposure',
+    occupationalDetails: 'Occupation Details', hobbyLeadExposure: 'Hobby Lead Exposure',
+    hobbyDetails: 'Hobby Details',
+    previousLeadInspection: 'Previous Lead Inspection', previousInspectionDetails: 'Inspection Details',
+    previousLeadAbatement: 'Previous Abatement', abatementDetails: 'Abatement Details',
+    recentRenovation: 'Recent Renovation', renovationDetails: 'Renovation Details',
+    renovationMethod: 'Renovation Method', paintChipsOrDust: 'Paint Chips/Dust Observed',
+    paintChipLocations: 'Paint Chip Locations', windowsEasyToOpenClose: 'Windows Operable',
+    windowProblems: 'Window Problems',
+    cleaningFrequency: 'Cleaning Frequency', cleaningMethod: 'Cleaning Method',
+    dustAccumulation: 'Dust Accumulation', dustAccumulationLocations: 'Dust Locations',
+    petsPresent: 'Pets Present', petDetails: 'Pet Details',
+    waterSource: 'Water Source', waterPipeMaterial: 'Pipe Material',
+    usesWaterFilter: 'Water Filter', cookwareType: 'Cookware Type',
+    usesImportedFoods: 'Imported Foods', usesTraditionalRemedies: 'Traditional Remedies',
+    remedyDetails: 'Remedy Details',
+    usesLeadCosmetics: 'Lead-Containing Cosmetics (kohl/surma)',
+    cosmeticDetails: 'Cosmetic Details',
+    usesImportedPottery: 'Imported Pottery/Ceramics for Food',
+    shoesRemovedAtDoor: 'Shoes Removed at Door',
+    additionalConcerns: 'Additional Concerns', interviewerNotes: 'Interviewer Notes',
+    intervieweeCooperative: 'Cooperativeness', interviewRefused: 'Interview Refused',
+    refusalReason: 'Refusal Reason',
+  };
+
+  var SECTIONS = [
+    { title: 'Household Information', keys: ['interviewDate','intervieweeName','intervieweeRelationship','numberOfOccupants','numberOfChildrenUnder6','childrenAges','pregnantWomenPresent','lengthOfResidency'] },
+    { title: 'Children\'s Activities & Risk Factors', keys: ['childrenPrimaryPlayAreas','childrenPlayOutside','outsidePlayAreas','childrenPutThingsInMouth','childChewsWindowsills','childChewsPaintedSurfaces','childPlaysNearWindowsWells','childContactsBareSoil','childEatsOutside','childWashesHandsBeforeEating','childPicaBehavior','picaDetails','childCaredOutsideHome','outsideCareDetails','floorTypeChildAreas'] },
+    { title: 'Lead Exposure History', keys: ['childEverTestedForLead','testResults','childOnMedicaid','healthConcernsReported','healthConcernsDetails','occupationalLeadExposure','occupationalDetails','hobbyLeadExposure','hobbyDetails'] },
+    { title: 'Property History & Maintenance', keys: ['previousLeadInspection','previousInspectionDetails','previousLeadAbatement','abatementDetails','recentRenovation','renovationDetails','renovationMethod','paintChipsOrDust','paintChipLocations','windowsEasyToOpenClose','windowProblems'] },
+    { title: 'Housekeeping Practices', keys: ['cleaningFrequency','cleaningMethod','dustAccumulation','dustAccumulationLocations','shoesRemovedAtDoor','petsPresent','petDetails'] },
+    { title: 'Water & Food & Secondary Sources', keys: ['waterSource','waterPipeMaterial','usesWaterFilter','cookwareType','usesImportedFoods','usesTraditionalRemedies','remedyDetails','usesLeadCosmetics','cosmeticDetails','usesImportedPottery'] },
+  ];
+
+  var children = [buildSectionHeading('RESIDENT INTERVIEW')];
+
+  if (interview.interviewRefused) {
+    children.push(buildBodyText('Interview was refused by the resident.'));
+    if (interview.refusalReason) children.push(buildLabelValue('Reason', interview.refusalReason));
+    children.push(new Paragraph({ children: [new PageBreak()] }));
+    return children;
+  }
+
+  SECTIONS.forEach(function(section) {
+    children.push(buildSubHeading(section.title));
+    var rows = [new TableRow({ children: [headerCell('Question', 4000), headerCell('Response', 5800)] })];
+    section.keys.forEach(function(key) {
+      if (interview[key] !== undefined && interview[key] !== '') {
+        rows.push(new TableRow({ children: [dataCell(LABELS[key] || key, 4000, { bold: true }), dataCell(String(interview[key]), 5800)] }));
+      }
+    });
+    if (rows.length > 1) {
+      children.push(new Table({ width: { size: 9800, type: WidthType.DXA }, rows: rows }));
+      children.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
+    }
+  });
+
+  if (interview.additionalConcerns) {
+    children.push(buildSubHeading('Additional Concerns'));
+    children.push(buildBodyText(interview.additionalConcerns));
+  }
+  if (interview.interviewerNotes) {
+    children.push(buildSubHeading('Inspector Notes'));
+    children.push(buildBodyText(interview.interviewerNotes));
+  }
+
+  children.push(new Paragraph({ children: [new PageBreak()] }));
+  return children;
+}
+
 function buildSurveyMethodology(projectInfo) {
   var children = [
     buildSectionHeading('SURVEY METHODOLOGY'),
@@ -1084,6 +1295,73 @@ function buildCertificationPage(projectInfo) {
 }
 
 // ============================================================================
+// TABLE OF CONTENTS BUILDER
+// ============================================================================
+
+function buildTableOfContents() {
+  var sections = [
+    '1. Executive Summary',
+    '2. Purpose and Scope',
+    '3. Key Definitions',
+    '4. Property Description',
+    '5. Building Condition Survey',
+    '6. Resident Interview',
+    '7. Survey Methodology',
+    '8. XRF Calibration Data',
+    '9. XRF Results',
+    '10. Dust Wipe Results',
+    '11. Soil Results',
+    '12. Sample Collection Log',
+    '13. Surfaces Unable to Be Tested',
+    '14. Potential Hazards / Assumed Positives',
+    '15. Hazard Analysis and Recommendations',
+    '16. Regulatory Standards Reference',
+    '17. Disclosure and Notification',
+    '18. Operations and Maintenance',
+    '19. Re-evaluation Schedule',
+    '20. Inspector Certification',
+    '21. Appendices',
+  ];
+
+  var tocParagraphs = [
+    // TOC Title
+    new Paragraph({
+      heading: HeadingLevel.HEADING_1,
+      spacing: { before: 240, after: 400 },
+      children: [new TextRun({ text: 'TABLE OF CONTENTS', font: 'Arial', size: 32, bold: true, color: NAVY })],
+    }),
+  ];
+
+  // Add each section as a TOC entry with dotted leader
+  sections.forEach(function(section) {
+    tocParagraphs.push(
+      new Paragraph({
+        spacing: { after: 120 },
+        children: [
+          new TextRun({
+            text: section,
+            font: 'Arial',
+            size: 22,
+            color: BLUE,
+          }),
+          new TextRun({
+            text: ' .................................................................',
+            font: 'Arial',
+            size: 22,
+            color: '999999',
+          }),
+        ],
+      })
+    );
+  });
+
+  // Add page break after TOC
+  tocParagraphs.push(new Paragraph({ children: [new PageBreak()] }));
+
+  return tocParagraphs;
+}
+
+// ============================================================================
 // MAIN EXPORT FUNCTION
 // ============================================================================
 
@@ -1097,7 +1375,10 @@ export async function generateDocxReport(state, hazards) {
   // 1. Cover Page
   children = children.concat(buildCoverPage(projectInfo));
 
-  // 2. Executive Summary
+  // 2. Table of Contents
+  children = children.concat(buildTableOfContents());
+
+  // 3. Executive Summary
   children = children.concat(buildExecutiveSummary(state, hazards));
 
   // 3. Purpose and Scope (REQUIRED per 40 CFR 745.227)
@@ -1106,11 +1387,46 @@ export async function generateDocxReport(state, hazards) {
   // 4. Key Definitions (REQUIRED per Michigan LIRA-EBL checklist)
   children = children.concat(buildKeyDefinitions());
 
-  // 5. Property Description
+  // 5. Property Description + Site Location Map
   children = children.concat(buildPropertyDescription(projectInfo));
+  if (state._siteMapImageData) {
+    children = children.concat(buildSiteLocationMap(projectInfo, state._siteMapImageData));
+  }
+
+  // 5a. Building Condition Survey (REQUIRED per Michigan LIRA-EBL)
+  children = children.concat(buildBuildingConditionSurvey(state.buildingSurvey));
+
+  // 5b. Resident Interview (REQUIRED per Michigan LIRA-EBL)
+  children = children.concat(buildResidentInterviewSection(state.residentInterview));
 
   // 6. Survey Methodology (REQUIRED per 40 CFR 745.227)
   children = children.concat(buildSurveyMethodology(projectInfo));
+
+  // 6a. XRF Calibration Data (REQUIRED per EPA 4-hour recalibration)
+  if (state.calibrationReadings && state.calibrationReadings.length > 0) {
+    children.push(buildSectionHeading('XRF CALIBRATION DATA'));
+    children.push(buildBodyText(
+      'Calibration readings were recorded per EPA requirements. The XRF instrument was calibrated using a NIST Standard Reference Material (SRM) with an expected value of ' +
+      (state.calibrationConfig?.standardValue || 1.02) + ' mg/cm². Tolerance: ±' + (state.calibrationConfig?.tolerancePercent || 10) + '%. ' +
+      'Recalibration performed at intervals not exceeding ' + (state.calibrationConfig?.recalibrationHours || 4) + ' hours.'
+    ));
+    var calRows = [new TableRow({ children: [
+      headerCell('Time', 2400), headerCell('Standard', 1400), headerCell('Measured', 1400),
+      headerCell('Deviation %', 1400), headerCell('Within Tolerance', 1400), headerCell('Notes', 1800)
+    ]})];
+    state.calibrationReadings.forEach(function(cal) {
+      calRows.push(new TableRow({ children: [
+        dataCell(new Date(cal.timestamp).toLocaleString(), 2400),
+        dataCell(String(cal.standardValue) + ' mg/cm²', 1400),
+        dataCell(String(cal.measuredValue) + ' mg/cm²', 1400),
+        dataCell(cal.deviationPercent.toFixed(1) + '%', 1400),
+        dataCell(cal.withinTolerance ? 'Yes' : 'NO', 1400, cal.withinTolerance ? {} : { bold: true }),
+        dataCell(cal.notes || '', 1800),
+      ]}));
+    });
+    children.push(new Table({ width: { size: 9800, type: WidthType.DXA }, rows: calRows }));
+    children.push(new Paragraph({ children: [new PageBreak()] }));
+  }
 
   // 7. XRF Results - All Readings + Positive Only
   children = children.concat(buildXRFResultsSection(state.xrfData));
@@ -1123,11 +1439,58 @@ export async function generateDocxReport(state, hazards) {
     children = children.concat(buildSoilSection(state.soilSamples));
   }
 
+  // 9a. Sample Collection Log (chain of custody)
+  if (state.sampleLog && state.sampleLog.length > 0) {
+    children.push(buildSectionHeading('SAMPLE COLLECTION LOG'));
+    children.push(buildBodyText('The following samples were collected during the field inspection for laboratory analysis. Chain of custody documentation is maintained for all samples.'));
+    var slRows = [new TableRow({ children: [
+      headerCell('Sample ID', 1200), headerCell('Type', 1200), headerCell('Room', 1400),
+      headerCell('Surface', 1600), headerCell('Date/Time', 1600), headerCell('Collector', 1400), headerCell('CoC #', 1400)
+    ]})];
+    state.sampleLog.forEach(function(s) {
+      slRows.push(new TableRow({ children: [
+        dataCell(s.sampleId, 1200, { bold: true }),
+        dataCell(s.type, 1200),
+        dataCell(s.room, 1400),
+        dataCell(s.surface, 1600),
+        dataCell(new Date(s.collectionTime).toLocaleString(), 1600),
+        dataCell(s.collectorName, 1400),
+        dataCell(s.cocNumber || 'N/A', 1400),
+      ]}));
+    });
+    children.push(new Table({ width: { size: 9800, type: WidthType.DXA }, rows: slRows }));
+    children.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
+  }
+
   // 10. Surfaces Unable to Be Tested (REQUIRED per Michigan checklist)
   children = children.concat(buildSurfacesUnableToTest(state.xrfData));
 
   // 11. Potential Hazards - Intact Positive Surfaces (REQUIRED per Michigan checklist)
   children = children.concat(buildPotentialHazards(state.xrfData));
+
+  // 11a. Assumed Positive Surfaces (HUD/EPA — untested surfaces sharing painting history)
+  if (state.assumedPositives && state.assumedPositives.length > 0) {
+    children.push(buildSectionHeading('ASSUMED POSITIVE SURFACES'));
+    children.push(buildBodyText(
+      'The following surfaces were not directly tested but are assumed to contain lead-based paint based on shared painting history ' +
+      'with positive-tested surfaces, inaccessibility during inspection, or matching component characteristics per HUD Guidelines Chapter 7.'
+    ));
+    var apRows = [new TableRow({ children: [
+      headerCell('Room', 1600), headerCell('Component', 1600), headerCell('Substrate', 1400),
+      headerCell('Side', 800), headerCell('Reason', 4400)
+    ]})];
+    state.assumedPositives.forEach(function(ap) {
+      apRows.push(new TableRow({ children: [
+        dataCell(ap.room, 1600),
+        dataCell(ap.component, 1600),
+        dataCell(ap.substrate || '', 1400),
+        dataCell(ap.side || '', 800),
+        dataCell(ap.reason, 4400),
+      ]}));
+    });
+    children.push(new Table({ width: { size: 9800, type: WidthType.DXA }, rows: apRows }));
+    children.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
+  }
 
   // 12. Hazard Analysis and Recommendations
   children = children.concat(buildHazardAnalysisSection(hazards));
