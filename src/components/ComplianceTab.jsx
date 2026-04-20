@@ -80,6 +80,10 @@ function buildChecklist(state) {
   };
 
   // ── SECTION 4: XRF Instrument ──
+  // Validate calibration readings exist and are populated
+  var calibrationReadings = state.calibrationReadings || [];
+  var hasCalibrationData = calibrationReadings.length > 0;
+
   var sec4 = {
     id: 'xrf_instrument',
     title: 'Section 4: XRF Instrument & Calibration',
@@ -89,6 +93,9 @@ function buildChecklist(state) {
       { id: 'xrf_serial', label: 'XRF serial number', passed: hasValue(pi.xrfSerial), required: true, field: 'Project Info → XRF Serial #' },
       { id: 'xrf_calibration', label: 'Calibration check documented (3+ readings on NIST SRM)', passed: !!cc.xrf_calibration, required: true, field: 'Check this box when calibration records are ready for Appendix F',
         note: 'Attach pre-inspection calibration data in Appendix F of the report', manualCheckId: 'xrf_calibration' },
+      { id: 'calibration_data_populated', label: 'Calibration readings data entered', passed: hasCalibrationData, required: true, field: 'XRF Data tab → Calibration section',
+        detail: hasCalibrationData ? calibrationReadings.length + ' calibration reading(s) recorded' : 'No calibration readings recorded',
+        warning: !hasCalibrationData ? 'No calibration readings recorded' : null },
     ]
   };
 
@@ -172,6 +179,11 @@ function buildChecklist(state) {
   }
 
   // ── SECTION 8: Lab Information ──
+  // Check if lab name matches sample data and accreditation is provided
+  var hasLabInSamples = dust.some(function(d) { return hasValue(d.labName); }) ||
+                        soil.some(function(s) { return hasValue(s.labName); });
+  var labAccreditationProvided = hasValue(state.labName) && hasValue(state.labCertNumber);
+
   var sec8 = {
     id: 'lab_info',
     title: 'Section 8: Laboratory Information',
@@ -179,6 +191,8 @@ function buildChecklist(state) {
     items: [
       { id: 'lab_name', label: 'NLLAP-accredited laboratory name', passed: hasValue(state.labName), required: isRA, field: 'Lab Results tab → Lab Name' },
       { id: 'lab_cert', label: 'Laboratory certification / accreditation number', passed: hasValue(state.labCertNumber), required: isRA, field: 'Lab Results tab → Cert #' },
+      { id: 'lab_accreditation_check', label: 'Lab accreditation information complete', passed: labAccreditationProvided, required: isRA && hasLabInSamples, field: 'Lab Results tab → Lab Name and Cert #',
+        warning: hasLabInSamples && !labAccreditationProvided ? 'Lab accreditation info not provided for collected samples' : null },
     ]
   };
 
@@ -235,16 +249,38 @@ function buildChecklist(state) {
   }
 
   // ── SECTION 12: Report Appendices ──
+  // Validate actual data population for appendices
+  var buildingSurvey = state.buildingSurvey || {};
+  var buildingSurveyFields = Object.keys(buildingSurvey).filter(function(k) { return hasValue(buildingSurvey[k]); }).length;
+  var hasBuildingSurveyData = buildingSurveyFields >= 5;
+
+  var residentInterview = state.residentInterview || {};
+  var residentInterviewFields = Object.keys(residentInterview).filter(function(k) { return hasValue(residentInterview[k]); }).length;
+  var hasResidentInterviewData = residentInterviewFields >= 5;
+
+  var sampleLog = state.sampleLog || [];
+  var hasSampleLog = sampleLog.length > 0;
+  var hasDustOrSoil = dust.length > 0 || soil.length > 0;
+
+  var nlgText = state.nlgText || {};
+  var hasExecutiveSummary = hasValue(nlgText.executiveSummary);
+  var hasDisclosureLanguage = hasValue(nlgText.disclosureLanguage);
+
+  var signatures = state.signatures || {};
+  var hasInspectorSignature = hasValue(signatures.inspector);
+
   var sec12 = {
     id: 'appendices',
     title: 'Section 12: Report Appendices & Attachments',
     citation: 'Michigan LIRA-EBL Form 633775 §IX; HUD 24 CFR 35.930(b)',
     note: 'These items are included as placeholder sections in the generated report. Attach actual documents before final delivery.',
     items: [
-      { id: 'app_a', label: 'Appendix A: Resident Interview form', passed: !!cc.app_a, required: isRA || isEBL, field: 'Check this box when form is ready to attach',
-        note: 'Complete and attach the Michigan Resident Interview form', manualCheckId: 'app_a' },
-      { id: 'app_b', label: 'Appendix B: Building Condition Survey', passed: !!cc.app_b, required: true, field: 'Check this box when survey is ready to attach',
-        note: 'Document interior/exterior building conditions', manualCheckId: 'app_b' },
+      { id: 'app_a', label: 'Appendix A: Resident Interview form', passed: !!cc.app_a && hasResidentInterviewData, required: isRA || isEBL, field: 'Check this box when form is ready to attach',
+        note: 'Complete and attach the Michigan Resident Interview form', manualCheckId: 'app_a',
+        warning: !!cc.app_a && !hasResidentInterviewData ? 'Resident interview not yet completed' : null },
+      { id: 'app_b', label: 'Appendix B: Building Condition Survey', passed: !!cc.app_b && hasBuildingSurveyData, required: true, field: 'Check this box when survey is ready to attach',
+        note: 'Document interior/exterior building conditions', manualCheckId: 'app_b',
+        warning: !!cc.app_b && !hasBuildingSurveyData ? 'Building survey data not yet entered' : null },
       { id: 'app_c', label: 'Appendix C: Floor Plans', passed: !!cc.app_c, required: isHUD || isEBL, field: 'Check this box when floor plans are ready to attach',
         note: 'Show room numbers, sample locations, compass orientation', manualCheckId: 'app_c' },
       { id: 'app_d', label: 'Appendix D: Photo Log', passed: photos.length > 0, required: true, field: 'Auto-generated from Photos tab' },
@@ -254,6 +290,12 @@ function buildChecklist(state) {
         note: 'Attach XRF calibration records, PCS, pre/post inspection checks', manualCheckId: 'app_f' },
       { id: 'app_g', label: 'Appendix G: Inspector Credentials', passed: !!cc.app_g || hasValue(pi.inspectorCert), required: true, field: 'Check this box when credentials are ready to attach',
         note: 'Attach copy of inspector/risk assessor certification card or license', manualCheckId: 'app_g' },
+      { id: 'sample_log_check', label: 'Sample Collection Log (Chain of Custody)', passed: hasSampleLog || !hasDustOrSoil, required: hasDustOrSoil, field: 'Lab Results tab → Sample Log',
+        warning: hasDustOrSoil && !hasSampleLog ? 'Sample collection log required for chain of custody' : null },
+      { id: 'nlg_text_check', label: 'Executive Summary & Disclosure Language', passed: hasExecutiveSummary && hasDisclosureLanguage, required: true, field: 'Generate Report tab → NLG Text section',
+        warning: !hasExecutiveSummary || !hasDisclosureLanguage ? 'Executive summary / disclosure language not generated' : null },
+      { id: 'inspector_signature_check', label: 'Inspector Signature', passed: hasInspectorSignature, required: true, field: 'Signatures tab → Inspector Signature',
+        warning: !hasInspectorSignature ? 'Inspector signature required' : null },
     ]
   };
 
