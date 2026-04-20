@@ -14,8 +14,11 @@ const ThresholdManager = ({ state, dispatch }) => {
   const [filterByInspection, setFilterByInspection] = useState(true);
   const [editedThresholds, setEditedThresholds] = useState({});
 
-  const inspectionType = state.inspectionType || 'LIRA';
-  const programType = state.programType || '';
+  // FIX: inspection metadata lives under state.projectInfo, not state root.
+  // Previous `state.inspectionType` always returned undefined → filter always fell back to 'LIRA'
+  // regardless of the actual inspection type configured in Project Info.
+  const inspectionType = state.projectInfo?.inspectionType || 'LIRA';
+  const programType = state.projectInfo?.programType || '';
   const customThresholds = state.customThresholds || {};
 
   // Get thresholds to display
@@ -36,28 +39,46 @@ const ThresholdManager = ({ state, dispatch }) => {
     paint: 'bg-orange-100',
     dust: 'bg-blue-100',
     clearance: 'bg-green-100',
-    soil: 'bg-amber-100'
+    soil: 'bg-amber-100',
+    occupational: 'bg-red-50',
+    de_minimis: 'bg-gray-100'
   };
 
   const categoryHeaderColors = {
     paint: 'bg-orange-500',
     dust: 'bg-blue-500',
     clearance: 'bg-green-500',
-    soil: 'bg-amber-600'
+    soil: 'bg-amber-600',
+    occupational: 'bg-red-600',
+    de_minimis: 'bg-gray-500'
   };
 
-  // Check if custom thresholds differ from defaults
+  const categoryLabels = {
+    paint: 'Paint',
+    dust: 'Dust (Hazard Standard)',
+    clearance: 'Clearance (Post-Abatement)',
+    soil: 'Soil',
+    occupational: 'Occupational Exposure (MIOSHA / OSHA)',
+    de_minimis: 'De Minimis'
+  };
+
+  // Check if custom thresholds differ from defaults (skip non-numeric thresholds like "Any Reportable Level")
   const hasCustomThresholds = Object.keys(customThresholds).length > 0 &&
     Object.keys(customThresholds).some(id => {
       const defaultThreshold = REGULATORY_THRESHOLDS.find(t => t.id === id);
-      return defaultThreshold && customThresholds[id] !== defaultThreshold.threshold;
+      if (!defaultThreshold || defaultThreshold.threshold === null) return false;
+      return customThresholds[id] !== defaultThreshold.threshold;
     });
 
-  // Get actual threshold value (custom or default)
+  // Get actual threshold value (custom or default). Returns null for label-only thresholds (e.g., "Any Reportable Level").
   const getThresholdValue = (thresholdId) => {
-    return customThresholds[thresholdId] !== undefined
-      ? customThresholds[thresholdId]
-      : REGULATORY_THRESHOLDS.find(t => t.id === thresholdId)?.threshold;
+    if (customThresholds[thresholdId] !== undefined) return customThresholds[thresholdId];
+    return REGULATORY_THRESHOLDS.find(t => t.id === thresholdId)?.threshold;
+  };
+
+  // Check if a threshold is label-only (non-numeric, e.g., EPA DLRL "Any Reportable Level")
+  const isLabelOnly = (threshold) => {
+    return threshold.threshold === null && !!threshold.thresholdLabel;
   };
 
   // Handle threshold edit
@@ -148,7 +169,7 @@ const ThresholdManager = ({ state, dispatch }) => {
             <div key={category}>
               {/* Category header */}
               <div className={`${categoryHeaderColors[category]} text-white font-bold px-4 py-2 rounded-t-lg`}>
-                {category.charAt(0).toUpperCase() + category.slice(1)} Thresholds
+                {categoryLabels[category] || (category.charAt(0).toUpperCase() + category.slice(1))} Thresholds
               </div>
 
               {/* Threshold rows */}
@@ -166,6 +187,7 @@ const ThresholdManager = ({ state, dispatch }) => {
                   </thead>
                   <tbody>
                     {thresholds.map(threshold => {
+                      const labelOnly = isLabelOnly(threshold);
                       const displayValue = editedThresholds[threshold.id] !== undefined
                         ? editedThresholds[threshold.id]
                         : getThresholdValue(threshold.id);
@@ -174,11 +196,18 @@ const ThresholdManager = ({ state, dispatch }) => {
                         <tr key={threshold.id} className="border-b border-gray-300 hover:bg-white/50">
                           <td className="px-4 py-3 font-medium text-gray-900">{threshold.medium}</td>
                           <td className="px-4 py-3">
-                            {editMode ? (
+                            {labelOnly ? (
+                              <span
+                                className="font-semibold text-blue-800 italic"
+                                title="Non-numeric threshold defined by EPA regulation"
+                              >
+                                {threshold.thresholdLabel}
+                              </span>
+                            ) : editMode ? (
                               <input
                                 type="number"
                                 step="0.1"
-                                value={displayValue}
+                                value={displayValue ?? ''}
                                 onChange={(e) => handleThresholdChange(threshold.id, e.target.value)}
                                 className="w-20 px-2 py-1 border border-gray-400 rounded"
                               />

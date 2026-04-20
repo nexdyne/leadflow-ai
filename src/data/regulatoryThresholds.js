@@ -49,27 +49,29 @@ export const REGULATORY_THRESHOLDS = [
   },
   {
     id: 'dust_floor',
-    medium: 'Dust - Floors',
-    threshold: 10,
+    medium: 'Dust - Floors (DLRL)',
+    threshold: null,
+    thresholdLabel: 'Any Reportable Level',
     unit: 'µg/ft²',
-    source: 'EPA 2024 Final Rule',
+    source: '40 CFR 745.65(b); 89 FR 89416 (Nov 12, 2024)',
     effectiveDate: '2025-01-13',
     category: 'dust',
-    description: 'Dust-lead hazard standard for floors',
+    description: 'Dust-Lead Reportable Level (DLRL) for floors',
     appliesTo: ['LIRA', 'EBL'],
-    notes: 'EPA 2024 Final Rule lowered from 40 µg/ft². Note: EPA also establishes "any reportable level" as hazard trigger.'
+    notes: 'EPA Reconsideration Rule (eff. Jan 13, 2025): renamed DLHS→DLRL. Any lab-reportable value from an NLLAP-recognized lab constitutes a dust-lead hazard. Previous numeric standard (10 µg/ft²) retired.'
   },
   {
     id: 'dust_sill',
-    medium: 'Dust - Window Sills/Stools',
-    threshold: 100,
+    medium: 'Dust - Interior Window Sills (DLRL)',
+    threshold: null,
+    thresholdLabel: 'Any Reportable Level',
     unit: 'µg/ft²',
-    source: 'EPA 2024 Final Rule',
+    source: '40 CFR 745.65(b); 89 FR 89416 (Nov 12, 2024)',
     effectiveDate: '2025-01-13',
     category: 'dust',
-    description: 'Dust-lead hazard standard for window sills and stools',
+    description: 'Dust-Lead Reportable Level (DLRL) for interior window sills',
     appliesTo: ['LIRA', 'EBL'],
-    notes: 'EPA 2024 Final Rule lowered from 250 µg/ft²'
+    notes: 'EPA Reconsideration Rule (eff. Jan 13, 2025): any NLLAP-lab reportable value is a hazard. Previous numeric standard (100 µg/ft²) retired.'
   },
   {
     id: 'dust_trough',
@@ -97,39 +99,39 @@ export const REGULATORY_THRESHOLDS = [
   },
   {
     id: 'clearance_floor',
-    medium: 'Clearance - Floors',
+    medium: 'Clearance - Floors (DLAL)',
     threshold: 5,
     unit: 'µg/ft²',
-    source: 'EPA 2024 Final Rule',
-    effectiveDate: '2026-01-12',
+    source: '40 CFR 745.227(e)(8)(viii); 89 FR 89416',
+    effectiveDate: '2025-01-13',
     category: 'clearance',
-    description: 'Post-abatement/interim control clearance level for floors',
+    description: 'Dust-Lead Action Level (DLAL) for floors — post-abatement clearance must be < this value',
     appliesTo: ['Clearance'],
-    notes: 'Full compliance date Jan 12, 2026'
+    notes: 'EPA Reconsideration Rule renamed DLCL→DLAL; lowered from 10 µg/ft². Clearance achieved only if < 5 µg/ft².'
   },
   {
     id: 'clearance_sill',
-    medium: 'Clearance - Window Sills',
+    medium: 'Clearance - Interior Window Sills (DLAL)',
     threshold: 40,
     unit: 'µg/ft²',
-    source: 'EPA 2024 Final Rule',
-    effectiveDate: '2026-01-12',
+    source: '40 CFR 745.227(e)(8)(viii); 89 FR 89416',
+    effectiveDate: '2025-01-13',
     category: 'clearance',
-    description: 'Post-abatement/interim control clearance level for window sills',
+    description: 'Dust-Lead Action Level (DLAL) for interior window sills — clearance must be < this value',
     appliesTo: ['Clearance'],
-    notes: 'Full compliance date Jan 12, 2026'
+    notes: 'EPA Reconsideration Rule renamed DLCL→DLAL; lowered from 100 µg/ft².'
   },
   {
     id: 'clearance_trough',
-    medium: 'Clearance - Window Troughs',
+    medium: 'Clearance - Window Troughs (DLAL)',
     threshold: 100,
     unit: 'µg/ft²',
-    source: 'EPA 2024 Final Rule',
-    effectiveDate: '2026-01-12',
+    source: '40 CFR 745.227(e)(8)(viii); 89 FR 89416',
+    effectiveDate: '2025-01-13',
     category: 'clearance',
-    description: 'Post-abatement/interim control clearance level for window troughs',
+    description: 'Dust-Lead Action Level (DLAL) for window troughs — clearance must be < this value',
     appliesTo: ['Clearance'],
-    notes: 'Full compliance date Jan 12, 2026; per EPA 2024 Final Rule'
+    notes: 'EPA Reconsideration Rule renamed DLCL→DLAL; lowered from 400 µg/ft².'
   },
   {
     id: 'de_minimis_interior',
@@ -166,6 +168,92 @@ export const REGULATORY_THRESHOLDS = [
     description: 'Soil-lead hazard standard for bare soil outside play areas',
     appliesTo: ['LIRA', 'EBL'],
     notes: 'Average of bare soil samples from non-play areas'
+  },
+  // ─── MIOSHA occupational thresholds (Michigan Part 603 / Part 310) ───
+  // Michigan is stricter than federal OSHA on blood-lead medical removal and return-to-work.
+  {
+    id: 'miosha_action_level',
+    medium: 'Air - Action Level (8-hr TWA)',
+    threshold: 30,
+    unit: 'µg/m³',
+    source: 'MIOSHA Part 603 R 325.51922; 29 CFR 1926.62(b)',
+    effectiveDate: '2021-03-29',
+    category: 'occupational',
+    description: 'Action Level for airborne lead exposure (8-hour time-weighted average)',
+    appliesTo: ['LIRA', 'EBL', 'Clearance', 'LBP Inspection'],
+    notes: 'Triggers exposure assessment, medical surveillance, and training under MIOSHA Part 603 / federal 29 CFR 1926.62'
+  },
+  {
+    id: 'miosha_pel',
+    medium: 'Air - Permissible Exposure Limit (8-hr TWA)',
+    threshold: 50,
+    unit: 'µg/m³',
+    source: 'MIOSHA Part 603 R 325.51923; 29 CFR 1926.62(c)(1)',
+    effectiveDate: '2021-03-29',
+    category: 'occupational',
+    description: 'Permissible Exposure Limit for airborne lead (8-hour time-weighted average)',
+    appliesTo: ['LIRA', 'EBL', 'Clearance', 'LBP Inspection'],
+    notes: 'Exposures above PEL require respiratory protection, engineering controls, and written compliance program'
+  },
+  {
+    id: 'miosha_medical_removal_single',
+    medium: 'Blood Lead - Medical Removal (single)',
+    threshold: 30,
+    unit: 'µg/dL',
+    source: 'MIOSHA Part 603 R 325.51988',
+    effectiveDate: '2018-12-11',
+    category: 'occupational',
+    description: 'Michigan-specific: single confirmed BLL at or above this level triggers medical removal',
+    appliesTo: ['LIRA', 'EBL', 'Clearance', 'LBP Inspection'],
+    notes: 'STRICTER than federal OSHA (60 µg/dL). Michigan was the first state to lower this threshold (Dec 2018).'
+  },
+  {
+    id: 'miosha_medical_removal_avg',
+    medium: 'Blood Lead - Medical Removal (6-mo avg)',
+    threshold: 20,
+    unit: 'µg/dL',
+    source: 'MIOSHA Part 603 R 325.51988',
+    effectiveDate: '2018-12-11',
+    category: 'occupational',
+    description: 'Michigan-specific: 3-test 6-month average at or above this level triggers medical removal',
+    appliesTo: ['LIRA', 'EBL', 'Clearance', 'LBP Inspection'],
+    notes: 'STRICTER than federal OSHA (50 µg/dL).'
+  },
+  {
+    id: 'miosha_return_to_work',
+    medium: 'Blood Lead - Return to Work',
+    threshold: 15,
+    unit: 'µg/dL',
+    source: 'MIOSHA Part 603 R 325.51988',
+    effectiveDate: '2018-12-11',
+    category: 'occupational',
+    description: 'Michigan-specific: two consecutive BLLs must be below this value to return a removed worker',
+    appliesTo: ['LIRA', 'EBL', 'Clearance', 'LBP Inspection'],
+    notes: 'STRICTER than federal OSHA (40 µg/dL). Requires 2 consecutive tests below threshold.'
+  },
+  {
+    id: 'miosha_annual_exam',
+    medium: 'Blood Lead - Annual Exam Trigger',
+    threshold: 15,
+    unit: 'µg/dL',
+    source: 'MIOSHA Part 603 R 325.51988',
+    effectiveDate: '2018-12-11',
+    category: 'occupational',
+    description: 'Any BLL at or above this level in past 12 months triggers annual medical exam',
+    appliesTo: ['LIRA', 'EBL', 'Clearance', 'LBP Inspection'],
+    notes: 'Michigan-specific medical surveillance trigger'
+  },
+  {
+    id: 'mdhhs_ebl_case_definition',
+    medium: 'Blood Lead - MDHHS EBL Case Definition (pediatric)',
+    threshold: 3.5,
+    unit: 'µg/dL',
+    source: 'MDHHS Lead Services Section policy (2022–current)',
+    effectiveDate: '2022-01-01',
+    category: 'occupational',
+    description: 'Michigan: confirmed pediatric BLL at or above this value triggers LIRA-EBL response',
+    appliesTo: ['EBL'],
+    notes: 'Lowered from 5 µg/dL in 2022 to align with CDC Blood Lead Reference Value. Triggers the LIRA-EBL inspection pathway.'
   }
 ];
 
@@ -200,23 +288,50 @@ export const REGULATORY_FRAMEWORKS = [
   {
     id: 'state_michigan_lead_act',
     name: 'Michigan Lead Abatement Act',
-    citation: 'Act 219 of 1986',
+    citation: 'Public Health Code, Act 368 of 1978, Part 54A (MCL 333.5451 – 333.5477)',
     scope: 'State',
-    description: 'Michigan statutory authority for lead-based paint abatement and licensing'
+    description: 'Michigan statutory authority for lead-based paint abatement, inspector/risk assessor licensing, and LIRA program'
   },
   {
     id: 'state_michigan_admin_rules',
-    name: 'Michigan Administrative Rules - Lead Abatement',
-    citation: 'Michigan Admin Rules R 325.9901 – R 325.9975',
+    name: 'Michigan Administrative Rules - Lead Hazard Control Program',
+    citation: 'Mich. Admin. Code R 325.99101 – R 325.99403',
     scope: 'State',
-    description: 'Michigan administrative rules governing lead-based paint activities, licensing, and certification'
+    description: 'Michigan administrative rules promulgated under MCL 333.5451+ governing lead activities, licensing, certification, and recordkeeping'
   },
   {
     id: 'state_michigan_lira_ebl',
-    name: 'Michigan LIRA-EBL Report Checklist',
-    citation: 'LIRA-EBL Form 633775 V.3',
+    name: 'Michigan LIRA-EBL Report Guide & Checklist',
+    citation: 'MDHHS LIRA-EBL Report Guide (Form 633775 V.2/V.3)',
     scope: 'State',
-    description: 'Official Michigan checklist for Lead Inspection/Risk Assessment and Elevated Blood Lead reports'
+    description: 'Official MDHHS guide for Lead Inspection Risk Assessment triggered by a confirmed Elevated Blood Lead case (pediatric BLL ≥ 3.5 µg/dL)'
+  },
+  {
+    id: 'state_miosha_part603',
+    name: 'MIOSHA Part 603 - Lead Exposure in Construction',
+    citation: 'Mich. Admin. Code R 325.51901 – R 325.51998 (MIOSHA-STD-1403)',
+    scope: 'State',
+    description: 'Michigan occupational lead standard for construction — stricter than federal OSHA on medical removal and return-to-work BLLs',
+    subparts: [
+      { letter: '1922', title: 'Action Level (30 µg/m³)', key: true },
+      { letter: '1923', title: 'Permissible Exposure Limit (50 µg/m³)', key: true },
+      { letter: '1988', title: 'Medical Surveillance & Removal (BLL triggers)', key: true },
+      { letter: '1994', title: 'Recordkeeping (30-year exposure / employment + 30-year medical)', key: false }
+    ]
+  },
+  {
+    id: 'federal_osha_1926_62',
+    name: 'OSHA Lead in Construction',
+    citation: '29 CFR 1926.62',
+    scope: 'Federal',
+    description: 'Federal occupational lead exposure standard for construction activities including LBP abatement and renovation',
+    subparts: [
+      { letter: 'b', title: 'Action Level (30 µg/m³ 8-hr TWA)', key: true },
+      { letter: 'c', title: 'Permissible Exposure Limit (50 µg/m³ 8-hr TWA)', key: true },
+      { letter: 'j', title: 'Medical Surveillance & Biological Monitoring', key: true },
+      { letter: 'k', title: 'Medical Removal Protection', key: true },
+      { letter: 'l', title: 'Training (initial + annual)', key: false }
+    ]
   },
   {
     id: 'program_medicaid',
