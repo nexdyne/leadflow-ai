@@ -1,5 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 
+// Web Speech API requires a secure context (HTTPS) in Chrome/Edge.
+// On http:// (except localhost) recognition.start() silently fails with no event.
+function isSecureContextForSpeech() {
+  if (typeof window === 'undefined') return false;
+  if (window.isSecureContext) return true;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
 export function VoiceInput({
   onResult,
   fieldName = 'Field',
@@ -10,7 +19,9 @@ export function VoiceInput({
   const [interimTranscript, setInterimTranscript] = useState('');
   const [error, setError] = useState(null);
   const [isSupported, setIsSupported] = useState(true);
+  const [unsupportedReason, setUnsupportedReason] = useState('');
   const recognitionRef = useRef(null);
+  const isStartingRef = useRef(false);
 
   useEffect(() => {
     // Initialize speech recognition with browser compatibility
@@ -19,6 +30,13 @@ export function VoiceInput({
 
     if (!SpeechRecognition) {
       setIsSupported(false);
+      setUnsupportedReason('This browser does not support the Web Speech API. Use Chrome, Edge, or Safari on the tablet.');
+      return;
+    }
+
+    if (!isSecureContextForSpeech()) {
+      setIsSupported(false);
+      setUnsupportedReason('Voice input requires HTTPS. Reload the site over https:// to enable the microphone.');
       return;
     }
 
@@ -60,16 +78,25 @@ export function VoiceInput({
       } else if (event.error === 'network') {
         setError('Network error. Check your connection.');
       } else if (event.error === 'not-allowed') {
-        setError('Microphone access denied');
+        setError('Microphone access denied. Grant permission in browser settings.');
       } else if (event.error === 'service-not-allowed') {
-        setError('Voice input not supported');
+        setError('Voice input blocked by browser policy.');
+      } else if (event.error === 'aborted') {
+        // aborted fires when stop/abort is called or when a new recognizer supersedes this one.
+        // This is normal during unmount/teardown — do not surface to user.
+      } else if (event.error === 'audio-capture') {
+        setError('No microphone detected. Check tablet audio settings.');
+      } else if (event.error === 'language-not-supported') {
+        setError(`Language "${language}" not supported by this browser.`);
       } else {
-        setError(`Error: ${event.error}`);
+        setError(`Voice input error: ${event.error}`);
       }
+      isStartingRef.current = false;
     };
 
     recognition.onend = () => {
       setIsListening(false);
+      isStartingRef.current = false;
     };
 
     recognitionRef.current = recognition;
@@ -86,11 +113,24 @@ export function VoiceInput({
       setError('Voice input not supported');
       return;
     }
+    // Guard against double-start race: browsers throw InvalidStateError if start() is
+    // called while already listening, and user fast-taps on the tablet can trigger this.
+    if (isListening || isStartingRef.current) return;
 
+    isStartingRef.current = true;
+    setError(null);
     try {
       recognitionRef.current.start();
     } catch (e) {
-      // Already listening or other error
+      // Most commonly InvalidStateError when a prior session is still shutting down.
+      isStartingRef.current = false;
+      // eslint-disable-next-line no-console
+      console.warn('[VoiceInput] recognition.start() threw:', e?.name || e, '—', e?.message || '');
+      if (e?.name === 'InvalidStateError') {
+        setError('Voice input busy — please wait a second and try again.');
+      } else {
+        setError('Could not start voice input.');
+      }
     }
   };
 
@@ -104,19 +144,25 @@ export function VoiceInput({
     return (
       <div className="inline-flex items-center gap-2">
         <button
+          type="button"
           disabled
+          aria-disabled="true"
+          aria-label={`Voice input unavailable for ${fieldName}`}
           className="p-2 rounded-lg bg-gray-200 text-gray-400 cursor-not-allowed"
-          title="Voice input not supported in this browser"
+          title={unsupportedReason || 'Voice input not supported in this browser'}
         >
           <svg
             className="w-5 h-5"
             fill="currentColor"
             viewBox="0 0 20 20"
+            aria-hidden="true"
           >
             <path d="M10 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 8c3.314 0 6 1.343 6 3v2H4v-2c0-1.657 2.686-3 6-3z" />
           </svg>
         </button>
-        <span className="text-xs text-gray-500">Not supported</span>
+        <span className="text-xs text-gray-500">
+          {unsupportedReason || 'Not supported'}
+        </span>
       </div>
     );
   }
@@ -127,6 +173,8 @@ export function VoiceInput({
         <button
           type="button"
           onClick={isListening ? handleStopListening : handleStartListening}
+          aria-pressed={isListening}
+          aria-label={isListening ? `Stop voice input for ${fieldName}` : `Start voice input for ${fieldName}`}
           className={`p-2 rounded-lg transition-all duration-200 flex items-center justify-center ${
             isListening
               ? 'bg-red-500 text-white animate-pulse shadow-lg shadow-red-500/50'
@@ -138,13 +186,16 @@ export function VoiceInput({
             className="w-5 h-5"
             fill="currentColor"
             viewBox="0 0 20 20"
+            aria-hidden="true"
           >
             <path d="M10 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 8c3.314 0 6 1.343 6 3v2H4v-2c0-1.657 2.686-3 6-3z" />
           </svg>
         </button>
 
         {isListening && (
-          <span className="text-sm font-medium text-red-600">Listening...</span>
+          <span className="text-sm font-medium text-red-600" role="status" aria-live="polite">
+            Listening...
+          </span>
         )}
       </div>
 
