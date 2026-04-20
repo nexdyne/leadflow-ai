@@ -30,6 +30,7 @@ import ChangePasswordModal from './components/ChangePasswordModal';
 import NLGPanel from './components/NLGPanel';
 import QAReviewPanel from './components/QAReviewPanel';
 import ThresholdManager from './components/ThresholdManager';
+import VoiceNotePanel from './components/VoiceNotePanel';
 import AssumedPositivesTab from './components/AssumedPositivesTab';
 import InspectorClientPanel from './components/InspectorClientPanel';
 import PlatformAdminDashboard from './components/PlatformAdminDashboard';
@@ -68,10 +69,6 @@ function getVerifyEmailToken() {
   const params = new URLSearchParams(window.location.search);
   if (window.location.pathname === '/verify-email') return params.get('token');
   return null;
-}
-
-function isForgotPasswordPath() {
-  return window.location.pathname === '/forgot-password';
 }
 
 function isLoginPath() {
@@ -119,7 +116,6 @@ function AppContent() {
     if (isPortalPath()) setPortalMode(true);
     if (isAdminPath()) setPlatformLoginMode(true);
     if (isLoginPath()) setLoginMode(true);
-    if (isForgotPasswordPath()) setForgotPasswordMode(true);
     const resetToken = getResetPasswordToken();
     if (resetToken) setResetPasswordToken(resetToken);
     const verifyToken = getVerifyEmailToken();
@@ -634,6 +630,17 @@ function AppContent() {
             {/* Tab Content */}
             <div className="bg-white rounded-lg shadow-lg p-6">
               <ActiveComponent state={state} dispatch={dispatch} />
+
+              {/* Per-tab Voice Notes panel — notes are scoped to the active tab by label.
+                  Reducer + initial state already wired at src/data/initialState.js
+                  (voiceNotes array + ADD_VOICE_NOTE / DELETE_VOICE_NOTE cases). */}
+              <div className="mt-6">
+                <VoiceNotePanel
+                  state={state}
+                  dispatch={dispatch}
+                  tabName={tabs[activeTab].label}
+                />
+              </div>
 
               {/* Save Progress Bar — visible on every tab */}
               <div className="mt-8 pt-6 border-t border-gray-200 flex items-center justify-between">
