@@ -3,42 +3,74 @@ import React, { useRef, useEffect, useState } from 'react';
 /**
  * SignaturePad Component
  *
- * Canvas-based signature capture for inspectors and property owners
- * Supports mouse and touch input with undo functionality
+ * Canvas-based signature capture for inspectors, property owners, and occupants.
+ * Supports mouse, touch, and typed signatures with undo functionality.
+ *
+ * Regulatory basis:
+ *  - ESIGN Act, 15 USC § 7001(c)(1) — consumer affirmative consent to electronic signatures
+ *  - Michigan UETA, MCL 450.831 et seq. — attribution, intent, record retention
+ *  - EPA 40 CFR 745.227(e)(10) — inspector/risk assessor certification (used by caller)
+ *  - HUD 24 CFR 35.1300(e) — owner/occupant notice acknowledgment (used by caller)
  *
  * Props:
- * - signatureType: 'inspector' | 'owner' | 'occupant'
- * - signerName: string (pre-filled name)
- * - onSave: callback(signatureData)
- * - onClear: callback when signature cleared
- * - existingSignature: optional previously saved signature dataUrl
+ *  - signatureType: 'inspector' | 'owner' | 'occupant'
+ *  - signerName: string (pre-filled name from project state)
+ *  - onSave: callback(signatureData) — { dataUrl, signerName, signatureType, timestamp, consented, userAgent, canvasWidth, canvasHeight }
+ *  - onClear: callback when signature cleared
+ *  - existingSignature: optional previously saved signature dataUrl
+ *  - requireConsent: bool (default true for owner/occupant, false for inspector — inspector consent is implicit in employment)
  */
 const SignaturePad = ({
   signatureType = 'inspector',
   signerName = '',
   onSave,
   onClear,
-  existingSignature = null
+  existingSignature = null,
+  requireConsent
 }) => {
   const canvasRef = useRef(null);
+  const hasInkRef = useRef(false); // Authoritative paint-detection flag (replaces broken alpha-scan)
   const [isDrawing, setIsDrawing] = useState(false);
   const [strokes, setStrokes] = useState([]);
   const [currentStroke, setCurrentStroke] = useState([]);
   const [useTypedSignature, setUseTypedSignature] = useState(false);
   const [typedName, setTypedName] = useState(signerName);
+  const [printedName, setPrintedName] = useState(signerName);
   const [showExisting, setShowExisting] = useState(!!existingSignature);
   const [signatureTimestamp, setSignatureTimestamp] = useState(null);
   const [canvasEmpty, setCanvasEmpty] = useState(true);
+  // ESIGN §7001(c)(1) consent — defaults to required for non-inspector signers
+  const consentRequired = typeof requireConsent === 'boolean'
+    ? requireConsent
+    : (signatureType !== 'inspector');
+  const [consented, setConsented] = useState(!consentRequired);
 
   const CANVAS_WIDTH = 400;
   const CANVAS_HEIGHT = 200;
   const LINE_WIDTH = 2;
-  const STROKE_COLOR = '#1a365d'; // dark blue
+  const STROKE_COLOR = '#1a365d';
 
-  // Initialize canvas
+  // Keep printedName in sync when parent passes a new signerName
+  useEffect(() => {
+    if (signerName && !printedName) setPrintedName(signerName);
+    if (signerName && !typedName) setTypedName(signerName);
+  }, [signerName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Initialize canvas with devicePixelRatio scaling for crisp rendering on Retina / tablet displays
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    // Only re-size the backing store if it hasn't already been scaled
+    if (canvas.width !== CANVAS_WIDTH * dpr) {
+      canvas.width = CANVAS_WIDTH * dpr;
+      canvas.height = CANVAS_HEIGHT * dpr;
+      canvas.style.width = CANVAS_WIDTH + 'px';
+      canvas.style.height = CANVAS_HEIGHT + 'px';
+      const ctx0 = canvas.getContext('2d');
+      ctx0.scale(dpr, dpr);
+    }
 
     const ctx = canvas.getContext('2d');
     ctx.lineCap = 'round';
@@ -46,7 +78,6 @@ const SignaturePad = ({
     ctx.lineWidth = LINE_WIDTH;
     ctx.strokeStyle = STROKE_COLOR;
 
-    // Draw empty signature line and placeholder text
     if (canvasEmpty && !useTypedSignature && !showExisting) {
       drawEmptyCanvas(ctx);
     } else if (showExisting && existingSignature) {
@@ -56,26 +87,19 @@ const SignaturePad = ({
     } else if (strokes.length > 0) {
       redrawCanvas(ctx, strokes);
     }
-  }, [canvasEmpty, useTypedSignature, showExisting, strokes, typedName]);
+  }, [canvasEmpty, useTypedSignature, showExisting, strokes, typedName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const drawEmptyCanvas = (ctx) => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // Border
     ctx.strokeStyle = '#d1d5db';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // Signature line
     ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(20, (CANVAS_HEIGHT * 0.75));
     ctx.lineTo(CANVAS_WIDTH - 20, (CANVAS_HEIGHT * 0.75));
     ctx.stroke();
-
-    // Placeholder text
     ctx.fillStyle = '#9ca3af';
     ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
@@ -85,12 +109,9 @@ const SignaturePad = ({
   const drawExistingSignature = (ctx) => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
     ctx.strokeStyle = '#d1d5db';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // Load and draw the image
     const img = new Image();
     img.onload = () => {
       ctx.drawImage(img, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -101,20 +122,14 @@ const SignaturePad = ({
   const drawTypedSignature = (ctx, name) => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
     ctx.strokeStyle = '#d1d5db';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // Draw signature line
     ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(20, (CANVAS_HEIGHT * 0.75));
     ctx.lineTo(CANVAS_WIDTH - 20, (CANVAS_HEIGHT * 0.75));
     ctx.stroke();
-
-    // Draw typed name in cursive
     ctx.fillStyle = '#1a365d';
     ctx.font = 'italic 32px "Brush Script MT", cursive, serif';
     ctx.textAlign = 'center';
@@ -124,22 +139,17 @@ const SignaturePad = ({
   const redrawCanvas = (ctx, strokesToDraw) => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
     ctx.strokeStyle = '#d1d5db';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = LINE_WIDTH;
     ctx.strokeStyle = STROKE_COLOR;
-
     strokesToDraw.forEach(stroke => {
       if (stroke.length === 0) return;
-
       ctx.beginPath();
       ctx.moveTo(stroke[0].x, stroke[0].y);
-
       for (let i = 1; i < stroke.length; i++) {
         ctx.lineTo(stroke[i].x, stroke[i].y);
       }
@@ -150,17 +160,19 @@ const SignaturePad = ({
   const getCanvasCoordinates = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-
+    // Use CSS size (CANVAS_WIDTH) ratio, since backing store was scaled by dpr
+    const scaleX = CANVAS_WIDTH / rect.width;
+    const scaleY = CANVAS_HEIGHT / rect.height;
     if (e.touches) {
       const touch = e.touches[0];
       return {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top
+        x: (touch.clientX - rect.left) * scaleX,
+        y: (touch.clientY - rect.top) * scaleY
       };
     } else {
       return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
       };
     }
   };
@@ -174,18 +186,15 @@ const SignaturePad = ({
 
   const handleMouseMove = (e) => {
     if (!isDrawing || showExisting || useTypedSignature) return;
-
     const coords = getCanvasCoordinates(e);
     const newStroke = [...currentStroke, coords];
     setCurrentStroke(newStroke);
-
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = LINE_WIDTH;
     ctx.strokeStyle = STROKE_COLOR;
-
     if (newStroke.length === 1) {
       ctx.beginPath();
       ctx.moveTo(newStroke[0].x, newStroke[0].y);
@@ -193,12 +202,12 @@ const SignaturePad = ({
       ctx.lineTo(coords.x, coords.y);
       ctx.stroke();
     }
+    hasInkRef.current = true; // Paint detection: set on first actual stroke
   };
 
   const handleMouseUp = () => {
     if (!isDrawing) return;
     setIsDrawing(false);
-
     if (currentStroke.length > 0) {
       const newStrokes = [...strokes, currentStroke];
       setStrokes(newStrokes);
@@ -218,18 +227,15 @@ const SignaturePad = ({
   const handleTouchMove = (e) => {
     e.preventDefault();
     if (!isDrawing || showExisting || useTypedSignature) return;
-
     const coords = getCanvasCoordinates(e);
     const newStroke = [...currentStroke, coords];
     setCurrentStroke(newStroke);
-
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = LINE_WIDTH;
     ctx.strokeStyle = STROKE_COLOR;
-
     if (newStroke.length === 1) {
       ctx.beginPath();
       ctx.moveTo(newStroke[0].x, newStroke[0].y);
@@ -237,13 +243,13 @@ const SignaturePad = ({
       ctx.lineTo(coords.x, coords.y);
       ctx.stroke();
     }
+    hasInkRef.current = true;
   };
 
   const handleTouchEnd = (e) => {
     e.preventDefault();
     if (!isDrawing) return;
     setIsDrawing(false);
-
     if (currentStroke.length > 0) {
       const newStrokes = [...strokes, currentStroke];
       setStrokes(newStrokes);
@@ -258,9 +264,8 @@ const SignaturePad = ({
     setCanvasEmpty(true);
     setShowExisting(false);
     setUseTypedSignature(false);
-    if (onClear) {
-      onClear();
-    }
+    hasInkRef.current = false;
+    if (onClear) onClear();
   };
 
   const handleUndo = () => {
@@ -269,41 +274,39 @@ const SignaturePad = ({
     setStrokes(newStrokes);
     if (newStrokes.length === 0) {
       setCanvasEmpty(true);
+      hasInkRef.current = false;
     }
   };
 
-  const isCanvasPainted = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    const data = imageData.data;
-
-    for (let i = 3; i < data.length; i += 4) {
-      if (data[i] > 200) return true; // Check alpha channel for non-white pixels
-    }
-    return false;
+  // Replaces the old alpha-channel scan (which returned true on any white fillRect).
+  // hasInkRef is set only when the user actually draws a stroke.
+  const hasSignatureContent = () => {
+    if (useTypedSignature) return typedName.trim().length > 0;
+    if (showExisting) return !!existingSignature;
+    return hasInkRef.current && strokes.length > 0;
   };
 
   const handleSave = () => {
-    if (!signerName && !typedName) {
-      alert('Please enter a signer name');
+    const finalSignerName = (useTypedSignature ? typedName : printedName || signerName).trim();
+    if (!finalSignerName) {
+      alert('Please enter the signer\'s printed name.');
+      return;
+    }
+    if (consentRequired && !consented) {
+      alert('You must acknowledge consent to sign electronically before saving.');
+      return;
+    }
+    if (!hasSignatureContent()) {
+      alert(useTypedSignature
+        ? 'Please type the signer\'s name before saving.'
+        : 'Please draw a signature before saving.');
       return;
     }
 
     const canvas = canvasRef.current;
-
-    // For typed signatures or existing, we can save directly
-    // For drawn signatures, verify canvas has content
-    if (!useTypedSignature && !showExisting) {
-      if (!isCanvasPainted()) {
-        alert('Please draw a signature before saving');
-        return;
-      }
-    }
-
     const dataUrl = canvas.toDataURL('image/png');
-    const finalSignerName = typedName || signerName;
     const timestamp = new Date().toISOString();
+    setSignatureTimestamp(timestamp); // Fix: was declared but never set
 
     if (onSave) {
       onSave({
@@ -311,7 +314,12 @@ const SignaturePad = ({
         signerName: finalSignerName,
         signatureType,
         timestamp,
-        ipAddress: null
+        consented: consentRequired ? true : null,
+        method: useTypedSignature ? 'typed' : 'drawn',
+        userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) || null,
+        canvasWidth: CANVAS_WIDTH,
+        canvasHeight: CANVAS_HEIGHT,
+        ipAddress: null // Populated server-side if needed; client cannot determine reliably
       });
     }
   };
@@ -319,14 +327,15 @@ const SignaturePad = ({
   const handleToggleTyped = () => {
     if (useTypedSignature) {
       setUseTypedSignature(false);
-      setTypedName('');
       setCanvasEmpty(true);
+      hasInkRef.current = false;
     } else {
       setUseTypedSignature(true);
       setShowExisting(false);
       setStrokes([]);
       setCurrentStroke([]);
       setCanvasEmpty(false);
+      if (!typedName && printedName) setTypedName(printedName);
     }
   };
 
@@ -337,6 +346,13 @@ const SignaturePad = ({
     setCanvasEmpty(true);
     setUseTypedSignature(false);
     setSignatureTimestamp(null);
+    hasInkRef.current = false;
+  };
+
+  const consentLabelByRole = {
+    owner: 'I am the property owner (or authorized representative) and I consent to sign this document electronically. I understand this electronic signature has the same legal effect as a handwritten signature under the federal ESIGN Act (15 USC § 7001) and the Michigan Uniform Electronic Transactions Act (MCL 450.831 et seq.).',
+    occupant: 'I am an adult occupant of the property and I consent to sign this document electronically. I understand this electronic signature has the same legal effect as a handwritten signature under the federal ESIGN Act (15 USC § 7001) and the Michigan Uniform Electronic Transactions Act (MCL 450.831 et seq.).',
+    inspector: 'I am the licensed inspector/risk assessor and I certify this report and consent to sign electronically under ESIGN (15 USC § 7001) and Michigan UETA (MCL 450.831 et seq.).'
   };
 
   return (
@@ -353,18 +369,21 @@ const SignaturePad = ({
         )}
       </div>
 
-      {/* Signer Name Input */}
+      {/* Printed Name Input — fixed so it always updates */}
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={`printed-name-${signatureType}`}>
           Printed Name
         </label>
         <input
+          id={`printed-name-${signatureType}`}
           type="text"
-          value={typedName || signerName}
+          value={useTypedSignature ? typedName : printedName}
           onChange={(e) => {
             const newVal = e.target.value;
             if (useTypedSignature) {
               setTypedName(newVal);
+            } else {
+              setPrintedName(newVal);
             }
           }}
           placeholder="Enter signer's name"
@@ -392,8 +411,8 @@ const SignaturePad = ({
         <div className="mb-4">
           <canvas
             ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
+            role="img"
+            aria-label={`${signatureType} signature pad — draw your signature`}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -416,7 +435,7 @@ const SignaturePad = ({
           <div className="border-2 border-gray-300 rounded-lg overflow-hidden bg-white">
             <img
               src={existingSignature}
-              alt="Existing signature"
+              alt={`Existing ${signatureType} signature`}
               className="w-full"
               style={{ maxHeight: CANVAS_HEIGHT }}
             />
@@ -426,6 +445,24 @@ const SignaturePad = ({
               Originally signed: {new Date(signatureTimestamp).toLocaleString()}
             </p>
           )}
+        </div>
+      )}
+
+      {/* ESIGN / UETA consent (owner + occupant; optional for inspector) */}
+      {consentRequired && !showExisting && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={consented}
+              onChange={(e) => setConsented(e.target.checked)}
+              className="w-4 h-4 mt-0.5 rounded border-gray-300"
+              aria-describedby={`consent-text-${signatureType}`}
+            />
+            <span id={`consent-text-${signatureType}`} className="text-xs text-gray-800 leading-snug">
+              {consentLabelByRole[signatureType] || consentLabelByRole.owner}
+            </span>
+          </label>
         </div>
       )}
 
@@ -460,7 +497,8 @@ const SignaturePad = ({
 
         <button
           onClick={handleSave}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          disabled={consentRequired && !consented}
+          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-not-allowed"
         >
           Save Signature
         </button>
