@@ -14,12 +14,94 @@ function GenerateReportTab({ state, dispatch }) {
     return hazards;
   };
 
+  // Fetch a site location map image as base64 data URL
+  const fetchSiteMap = async (address, city, stateCode, zip) => {
+    try {
+      const query = encodeURIComponent(`${address}, ${city}, ${stateCode} ${zip}`);
+      // Use Nominatim (OpenStreetMap) for geocoding — free, no API key
+      const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1`, {
+        headers: { 'User-Agent': 'LeadFlowAI/1.0' },
+      });
+      const geoData = await geoRes.json();
+      if (!geoData || geoData.length === 0) return null;
+
+      const lat = geoData[0].lat;
+      const lon = geoData[0].lon;
+      // Use OSM static map tile — render a canvas with tile + marker
+      const zoom = 16;
+      const tileX = Math.floor((parseFloat(lon) + 180) / 360 * Math.pow(2, zoom));
+      const tileY = Math.floor((1 - Math.log(Math.tan(parseFloat(lat) * Math.PI / 180) + 1 / Math.cos(parseFloat(lat) * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+
+      // Load center tile + surrounding tiles for a 640x480 map
+      const tilePromises = [];
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          const p = new Promise((resolve) => {
+            img.onload = () => resolve({ img, dx, dy });
+            img.onerror = () => resolve(null);
+          });
+          img.src = `https://tile.openstreetmap.org/${zoom}/${tileX + dx}/${tileY + dy}.png`;
+          tilePromises.push(p);
+        }
+      }
+
+      const tiles = await Promise.all(tilePromises);
+      const offsetX = 320 - 128;
+      const offsetY = 240 - 128;
+      tiles.forEach(t => {
+        if (t) ctx.drawImage(t.img, offsetX + t.dx * 256, offsetY + t.dy * 256, 256, 256);
+      });
+
+      // Draw red marker at center
+      ctx.fillStyle = '#CC0000';
+      ctx.beginPath();
+      ctx.arc(320, 240, 10, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(320, 240, 4, 0, 2 * Math.PI);
+      ctx.fill();
+
+      // Add label
+      ctx.font = 'bold 13px Arial';
+      ctx.fillStyle = '#1B3A5C';
+      ctx.fillRect(180, 440, 280, 28);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.textAlign = 'center';
+      ctx.fillText(address + ', ' + city, 320, 458);
+
+      return canvas.toDataURL('image/png');
+    } catch (err) {
+      console.warn('Site map generation failed:', err);
+      return null;
+    }
+  };
+
   const handleGenerateDocx = async () => {
     setGenerating(true);
     setLastFile(null);
     try {
       const hazards = runHazardAnalysis();
-      const filename = await generateDocxReport(state, hazards);
+
+      // Try to fetch site location map
+      const pi = state.projectInfo;
+      let reportState = { ...state };
+      if (pi.propertyAddress && pi.city) {
+        const mapData = await fetchSiteMap(pi.propertyAddress, pi.city, pi.state || 'MI', pi.zip);
+        if (mapData) reportState._siteMapImageData = mapData;
+      }
+
+      const filename = await generateDocxReport(reportState, hazards);
       setLastFile(filename);
     } catch (err) {
       console.error('DOCX generation failed:', err);
@@ -53,6 +135,9 @@ function GenerateReportTab({ state, dispatch }) {
   const isEBL = pi.programType === 'EBL';
   const isMedicaid = pi.programType === 'Medicaid';
 
+  const surveyFieldCount = Object.keys(state.buildingSurvey || {}).filter(k => state.buildingSurvey[k]).length;
+  const interviewFieldCount = Object.keys(state.residentInterview || {}).filter(k => state.residentInterview[k]).length;
+
   const isComplete = {
     inspector: !!pi.inspectorName && !!pi.inspectorCert && !!pi.companyName,
     xrfDevice: !!pi.xrfModel && !!pi.xrfSerial,
@@ -60,11 +145,13 @@ function GenerateReportTab({ state, dispatch }) {
     xrfData: state.xrfData.length > 0,
     labResults: !isRA || ((state.dustWipeSamples || []).length > 0 && !!state.labName),
     photos: (state.photos || []).length > 0,
+    buildingSurvey: surveyFieldCount >= 10,
+    residentInterview: interviewFieldCount >= 8,
     hazards: state.hazards.length > 0
   };
 
   const completionCount = Object.values(isComplete).filter(Boolean).length;
-  const totalItems = 7;
+  const totalItems = 9;
   const canGenerate = completionCount >= 4; // Need at least property, inspector, XRF device, and data
 
   // Count critical compliance gaps
@@ -92,6 +179,8 @@ function GenerateReportTab({ state, dispatch }) {
             { key: 'xrfData', label: 'XRF data uploaded' },
             { key: 'labResults', label: 'Lab results entered (optional for LBP Inspection)' },
             { key: 'photos', label: 'Photos uploaded for Appendix D Photo Log' },
+            { key: 'buildingSurvey', label: 'Building condition survey completed (10+ fields)' },
+            { key: 'residentInterview', label: 'Resident interview completed (8+ fields)' },
             { key: 'hazards', label: 'Hazard analysis run (auto-runs on generate)' }
           ].map(item => (
             <div key={item.key} className="flex items-center gap-2">
