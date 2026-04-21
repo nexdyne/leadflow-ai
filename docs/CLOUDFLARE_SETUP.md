@@ -9,17 +9,24 @@ for mail).
 
 ## Domain layout
 
-| Domain                 | Role                                         |
-| ---------------------- | -------------------------------------------- |
-| `abatecomply.com`      | Public app → routes to Railway               |
-| `nexdynegroup.com`     | Company / brand site + email sending domain  |
-| `mail.nexdynegroup.com`| Subdomain dedicated to Resend outbound mail  |
+| Domain                  | Role                                              |
+| ----------------------- | ------------------------------------------------- |
+| `abatecomply.com`       | LeadFlow AI public app → routes to Railway        |
+| `mail.abatecomply.com`  | Subdomain dedicated to Resend — LeadFlow outbound |
+| `nexdynegroup.com`      | NexDyne Consulting brand site + real inboxes (`support@`, `admin@`) |
+| `mail.nexdynegroup.com` | Subdomain dedicated to Resend — NexDyne outbound  |
 
-Both zones live on the same Cloudflare account. If they don't yet,
-add the missing zone under **Websites → Add a site**, choose the
+Both root zones live on the same Cloudflare account. If they don't
+yet, add the missing zone under **Websites → Add a site**, choose the
 **Pro** plan (David already pays for this), and update the registrar
 nameservers to the two Cloudflare NS records shown. Propagation is
 ~2 hours.
+
+**Why two sending subdomains:** LeadFlow and NexDyne Consulting are
+different products with different audiences. Keeping `mail.abatecomply.com`
+for LeadFlow transactional and `mail.nexdynegroup.com` for NexDyne
+consulting mail means a deliverability issue on one doesn't poison
+the other. One Resend account verifies both — see `EMAIL_SETUP.md`.
 
 ---
 
@@ -71,17 +78,28 @@ its CNAME under `@` and `www` the same way as abatecomply.com.
 
 ---
 
-## 3. `mail.nexdynegroup.com` → Resend (outbound)
+## 3. Resend sending subdomains (outbound)
 
-Resend verifies a subdomain, not the bare domain, so keep this
-on `mail.nexdynegroup.com`.
+Resend verifies a subdomain, not the bare domain. LeadFlow uses
+`mail.abatecomply.com`; NexDyne Consulting uses `mail.nexdynegroup.com`.
 
-1. In Resend, **Domains → Add Domain → `mail.nexdynegroup.com`**.
-2. Resend shows four records. In Cloudflare DNS for
-   `nexdynegroup.com`, add each one **exactly** as shown, with
-   **Proxy status: DNS only** (gray cloud). Orange cloud breaks mail.
+The procedure is the same for both — the only difference is which
+Cloudflare zone you add the records under. **Verify them one at a time**
+to avoid confusion: knock out `mail.abatecomply.com` first (that's the
+one LeadFlow needs to start sending), then do `mail.nexdynegroup.com`
+when NexDyne actually needs it.
 
-   Typical records (your exact values will differ slightly):
+### Step-by-step (repeat for each subdomain)
+
+1. In Resend, **Domains → Add Domain → `mail.abatecomply.com`** (or
+   `mail.nexdynegroup.com` for the NexDyne pass).
+2. Resend shows four records. In Cloudflare DNS for the **matching
+   root zone** (`abatecomply.com` or `nexdynegroup.com`), add each one
+   **exactly** as shown, with **Proxy status: DNS only** (gray cloud).
+   Orange cloud rewrites TXT/MX content and breaks mail.
+
+   Typical records for `mail.abatecomply.com` (your exact values will
+   differ slightly):
 
    | Type | Name                           | Content                              |
    | ---- | ------------------------------ | ------------------------------------ |
@@ -90,7 +108,21 @@ on `mail.nexdynegroup.com`.
    | TXT  | `resend._domainkey.mail`       | `p=…` (long DKIM string)             |
    | TXT  | `_dmarc.mail`                  | `v=DMARC1; p=none; rua=mailto:support@nexdynegroup.com` |
 
-3. Back in Resend click **Verify DNS Records**. Wait 5-15 min.
+   For `mail.nexdynegroup.com` it's the same four rows with
+   `nexdynegroup.com`-specific DKIM key Resend generates. The DMARC
+   `rua=` can still point at `support@nexdynegroup.com` — that's just
+   the reporting inbox, doesn't need to be on the sending domain.
+
+3. Back in Resend click **Verify DNS Records**. Wait 5-15 min. Once
+   all four show ✅, that subdomain can send.
+
+4. **Confirm in the API key:** when you create the Resend API key, its
+   permission scope defaults to "all domains in this account" — one
+   key can send from either `mail.abatecomply.com` or
+   `mail.nexdynegroup.com`. The `FROM_EMAIL` env var in Railway is
+   what pins LeadFlow to the abatecomply subdomain; NexDyne mail
+   (when you add it later) would use its own `FROM_EMAIL` in whatever
+   system sends it.
 
 ---
 
@@ -177,9 +209,12 @@ After all of the above, you should be able to:
 - **Hit the API:** `https://abatecomply.com/api/health` returns
   `{"status":"ok","timestamp":"…"}`.
 - **Submit support:** the landing page form succeeds and an alert
-  email appears in `support@nexdynegroup.com` within 30 seconds.
+  email appears in `support@nexdynegroup.com` within 30 seconds. The
+  "from" on that alert should be `no-reply@mail.abatecomply.com`.
 - **Sign in:** `admin@nexdynegroup.com` with the password you
   captured in the bootstrap log lets you into Platform Admin.
-- **No MX conflicts:** `dig MX nexdynegroup.com` shows either the
-  Cloudflare Email Routing MX (Option A) or your Workspace/Fastmail
-  MX (Option B), not both.
+- **No MX conflicts on the root zone:** `dig MX nexdynegroup.com`
+  shows either the Cloudflare Email Routing MX (Option A) or your
+  Workspace/Fastmail MX (Option B), not both. The Resend MX on
+  `mail.nexdynegroup.com` (and `mail.abatecomply.com`) is separate
+  from the root-zone MX and doesn't conflict.

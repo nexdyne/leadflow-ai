@@ -11,39 +11,65 @@ finds out what you just did, so don't leave them off for long.
 
 ## 1. Pick the sending domain
 
-We send all outbound mail from a subdomain of **nexdynegroup.com**.
-Using `mail.nexdynegroup.com` keeps the main domain's reputation
-separate from transactional mail.
+LeadFlow AI sends all its outbound transactional mail from a dedicated
+subdomain of **abatecomply.com** — `mail.abatecomply.com`. This keeps
+the product's sending reputation separate from the consulting business
+(`nexdynegroup.com`) and makes "from" addresses match the product a
+user signed up for.
+
+NexDyne Consulting Group's own outbound mail (proposals, client
+correspondence) gets its own subdomain — `mail.nexdynegroup.com` —
+verified in the same Resend account. Both subdomains are independent:
+one can be live while the other is still propagating, and a
+deliverability issue on one doesn't poison the other.
 
 Suggested addresses:
 
 | Purpose                                     | Address                              |
 | ------------------------------------------- | ------------------------------------ |
-| Transactional "from" (signups, resets, etc) | `LeadFlow AI <no-reply@mail.nexdynegroup.com>` |
+| LeadFlow transactional "from"               | `LeadFlow AI <no-reply@mail.abatecomply.com>` |
+| NexDyne Consulting "from" (later)           | `NexDyne <hello@mail.nexdynegroup.com>` |
 | Support inbox (ticket alerts land here)     | `support@nexdynegroup.com`           |
 | Platform admin login                        | `admin@nexdynegroup.com`             |
 
 The `support@` and `admin@` addresses are **real inboxes** you read —
-they're not forwarded through Resend. Resend only sends from the
-`mail.nexdynegroup.com` subdomain; inbound mail is handled by your MX
-records (Cloudflare Email Routing or your existing provider).
+they're not forwarded through Resend. Resend only *sends* from the
+verified subdomains; *receiving* mail at the root `nexdynegroup.com`
+addresses is handled by your inbound MX records (Cloudflare Email
+Routing or your existing provider — see `CLOUDFLARE_SETUP.md`).
+
+**One Resend account, multiple domains:** there's no extra cost for
+having more than one verified domain. The shared ceiling is just the
+monthly email volume on your plan (3,000/month on free).
 
 ---
 
-## 2. Verify the sending domain in Resend
+## 2. Verify the sending domain(s) in Resend
+
+You only need `mail.abatecomply.com` verified for LeadFlow to start
+sending. Verify `mail.nexdynegroup.com` later when NexDyne Consulting
+actually needs to send mail — the procedure is identical.
+
+### For each subdomain:
 
 1. Log in at <https://resend.com> and go to **Domains → Add Domain**.
-2. Enter `mail.nexdynegroup.com` (the subdomain, not the bare domain).
+2. Enter the subdomain — `mail.abatecomply.com` (LeadFlow) or
+   `mail.nexdynegroup.com` (NexDyne). **Never** the bare domain.
 3. Resend shows four DNS records it needs:
    - **MX** (for bounces)
    - **TXT** (SPF, starts with `v=spf1 include:amazonses.com`)
    - **TXT** (DKIM — `resend._domainkey`)
    - **TXT** (DMARC — `_dmarc`, optional but recommended)
-4. Copy each record into Cloudflare DNS exactly as Resend shows it.
-   See `CLOUDFLARE_SETUP.md` for the click-path; the key thing is to
-   leave **Proxy status: DNS only** (gray cloud) on all four records.
-   Orange-cloud proxying breaks email validation.
-5. Back in Resend, click **Verify DNS Records**. Propagation usually
+4. Copy each record into the **correct Cloudflare zone** — records
+   for `mail.abatecomply.com` go under the abatecomply.com zone;
+   records for `mail.nexdynegroup.com` go under nexdynegroup.com.
+   Resend checks the subdomain, not the parent, so putting records in
+   the wrong zone fails silently.
+5. See `CLOUDFLARE_SETUP.md` for the click-path. The non-obvious part
+   is to leave **Proxy status: DNS only** (gray cloud) on all four
+   records. Orange-cloud proxying rewrites TXT/MX content and breaks
+   validation.
+6. Back in Resend, click **Verify DNS Records**. Propagation usually
    takes 2-10 minutes; up to 30 minutes if Cloudflare is slow that
    day. Once all four show ✅, the domain is ready.
 
@@ -78,8 +104,14 @@ In the Railway LeadFlow service, go to **Variables** and add:
 | Variable           | Value                                            |
 | ------------------ | ------------------------------------------------ |
 | `RESEND_API_KEY`   | `re_…` (from step 3)                             |
-| `FROM_EMAIL`       | `LeadFlow AI <no-reply@mail.nexdynegroup.com>`   |
+| `FROM_EMAIL`       | `LeadFlow AI <no-reply@mail.abatecomply.com>`    |
 | `SUPPORT_INBOX`    | `support@nexdynegroup.com`                       |
+
+**Why the "from" and "to" are on different domains:** Resend sends
+the mail from the verified `mail.abatecomply.com` subdomain, but the
+support alert email is delivered *to* `support@nexdynegroup.com`
+(which is the inbox you actually read). Different domains don't cause
+delivery problems — SPF/DKIM only validate the sending side.
 
 **After adding, click "Redeploy"** — Restart reuses cached env vars
 and reference-style variables (`${{...}}`) won't re-resolve. Only a
