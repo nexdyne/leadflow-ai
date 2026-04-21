@@ -1,6 +1,7 @@
 import { query, withTransaction } from '../../db/connection.js';
 import { hashPassword } from '../../utils/hash.js';
 import { sendAnnouncementEmail, sendAccountSuspendedEmail, sendAccountReactivatedEmail } from '../../utils/email.js';
+import { getBillingSummaryForAdmin } from './billingController.js';
 
 // ─── Helper: verify user is platform admin ──────────────
 async function requirePlatformAdmin(userId) {
@@ -653,7 +654,7 @@ export async function getRevenue(req, res) {
     return res.status(err.status || 403).json({ error: err.message });
   }
 
-  const [mrr, planBreakdown, recentChanges] = await Promise.all([
+  const [mrr, planBreakdown, recentChanges, billingSummary] = await Promise.all([
     query(
       `SELECT COALESCE(SUM(monthly_rate), 0) AS total_mrr
        FROM organizations WHERE subscription_status = 'active' AND monthly_rate > 0`
@@ -666,18 +667,40 @@ export async function getRevenue(req, res) {
        ORDER BY revenue DESC`
     ),
     query(
-      `SELECT al.details, al.created_at, u.full_name AS actor_name
+      `SELECT al.details, al.action, al.created_at, u.full_name AS actor_name
        FROM audit_logs al
        LEFT JOIN users u ON u.id = al.actor_id
-       WHERE al.action LIKE 'org.%'
-       ORDER BY al.created_at DESC LIMIT 20`
+       WHERE al.action LIKE 'org.%' OR al.action LIKE 'billing.%'
+          OR al.action LIKE 'subscription.%' OR al.action LIKE 'invoice.%'
+       ORDER BY al.created_at DESC LIMIT 30`
     ),
+    // Stripe-backed billing summary. Returns stripeEnabled=false and empty
+    // arrays when Stripe is not configured, so the frontend can render a
+    // "Stripe not configured" banner without any conditional logic here.
+    getBillingSummaryForAdmin().catch((err) => {
+      console.error('getBillingSummary failed:', err.message);
+      return { stripeEnabled: false, stripeCustomerCount: 0, activeSubscriptionCount: 0, mrrCents: 0, recentInvoices: [], failedInvoices: [] };
+    }),
   ]);
 
+  const adminTypedMrr = parseFloat(mrr.rows[0].total_mrr);
+  const stripeMrr = (billingSummary.mrrCents || 0) / 100;
+
   res.json({
-    mrr: parseFloat(mrr.rows[0].total_mrr),
+    // Admin-typed MRR (from organizations.monthly_rate) — this is what we've
+    // always returned. Stays authoritative for pilot customers without Stripe.
+    mrr: adminTypedMrr,
+    // Stripe-backed MRR from active subscriptions. Will be 0 until orgs
+    // start paying through Stripe. The admin dashboard can show both side
+    // by side so the discrepancy is visible.
+    stripeMrr: stripeMrr,
+    // Combined — best estimate of real monthly recurring revenue. Admin-typed
+    // values for non-Stripe orgs + real Stripe values for paying orgs. This is
+    // the number to trust once Stripe is live.
+    combinedMrr: adminTypedMrr + stripeMrr,
     planBreakdown: planBreakdown.rows,
     recentChanges: recentChanges.rows,
+    billing: billingSummary,
   });
 }
 

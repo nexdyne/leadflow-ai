@@ -5,12 +5,14 @@ import { fileURLToPath } from 'url';
 import authRoutes from './api/routes/auth.js';
 import projectRoutes from './api/routes/projects.js';
 import photoRoutes from './api/routes/photos.js';
-import adminRoutes from './api/routes/admin.js';
+import teamRoutes from './api/routes/teams.js';
 import clientRoutes from './api/routes/client.js';
 import licenseRoutes from './api/routes/license.js';
+import adminRoutes from './api/routes/admin.js';
 import notificationRoutes from './api/routes/notifications.js';
 import platformAdminRoutes from './api/routes/platformAdmin.js';
-import teamRoutes from './api/routes/teams.js';
+import billingRoutes from './api/routes/billing.js';
+import { handleWebhook as handleStripeWebhook } from './api/controllers/billingController.js';
 import { errorHandler } from './api/middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,7 +24,13 @@ app.use(cors({
   credentials: true,
 }));
 
-// Body parsing
+// ─── Stripe webhook MUST be mounted BEFORE express.json() ──────────
+// Signature verification requires the raw, unparsed request body.
+// If json parsing runs first, req.body becomes an object and the HMAC
+// check fails with "No signatures found matching the expected signature".
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
+
+// Body parsing (for everything OTHER than the webhook above)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -35,12 +43,13 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/photos', photoRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/teams', teamRoutes);
 app.use('/api/client', clientRoutes);
 app.use('/api/license', licenseRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/platform', platformAdminRoutes);
-app.use('/api/teams', teamRoutes);
+app.use('/api/billing', billingRoutes);
 
 // API 404
 app.use('/api/*', (_req, res) => {
