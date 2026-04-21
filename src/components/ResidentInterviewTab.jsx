@@ -294,6 +294,15 @@ const ResidentInterviewTab = ({ state, dispatch }) => {
   const numChildren = parseInt(interview.numberOfChildrenUnder6) || 0;
   const hasChildren = numChildren > 0;
 
+  // Elevated Blood Lead flag (CDC 2021 BLRV & MDHHS EBL threshold per MCL 333.5474 = 3.5 µg/dL)
+  const bloodLeadNumeric = parseFloat(interview.bloodLeadLevel);
+  const isEBL = !isNaN(bloodLeadNumeric) && bloodLeadNumeric >= 3.5;
+
+  // Lead Service Line flag per EPA Lead and Copper Rule Improvements (LCRI, Oct 2024,
+  // 89 FR 86502; 40 CFR Part 141 Subpart I) — all lead/galvanized-requiring-replacement
+  // service lines to be replaced within 10 years (by 2037 compliance deadline).
+  const hasLeadServiceLine = interview.waterPipeMaterial === 'Lead';
+
   return (
     <div style={styles.container}>
       {/* Header */}
@@ -302,7 +311,10 @@ const ResidentInterviewTab = ({ state, dispatch }) => {
         <div style={styles.completionBadge}>{completionPercentage}% Complete</div>
       </div>
 
-      {/* HIPAA Privacy Notice */}
+      {/* Privacy Notice — HIPAA 45 CFR 160/164 + Michigan Mental Health Code
+          + MCL 333.5474 EBL reporting. This is intentionally specific: a vague
+          "federal privacy regulations" clause does not satisfy HIPAA §164.520 NPP
+          obligations when the inspector is a covered-entity business associate. */}
       <div style={{
         backgroundColor: '#dbeafe',
         borderLeft: '5px solid #2563eb',
@@ -316,10 +328,87 @@ const ResidentInterviewTab = ({ state, dispatch }) => {
         <div style={{display: 'flex', gap: '12px'}}>
           <span style={{fontSize: '18px', flexShrink: 0}}>🔒</span>
           <div>
-            <strong>Privacy Notice:</strong> Health information collected during this interview is protected under federal privacy regulations. This data will be used solely for the purpose of lead hazard assessment and will be included in the inspection report provided to the property owner/manager. By completing this interview, the occupant acknowledges this use of their information.
+            <strong>Privacy Notice:</strong> Health information collected in this
+            interview (including blood-lead test results, Medicaid status, and medical
+            history) may be protected health information under <strong>HIPAA 45 CFR
+            Parts 160 and 164</strong> when the inspector operates as a business
+            associate of a covered entity. It is also subject to <strong>Michigan
+            Public Health Code Act 368 of 1978, Part 54A (MCL 333.5451&ndash;5477)</strong>,
+            including <strong>MCL 333.5474</strong> mandatory reporting of elevated
+            blood lead levels to MDHHS. Interview data will be used solely for lead
+            hazard identification, report delivery to the property owner and HUD
+            (where applicable), and MDHHS EBL follow-up. Disclosure to third parties
+            outside these purposes requires the occupant&apos;s written authorization.
           </div>
         </div>
       </div>
+
+      {/* Elevated Blood Lead Level banner — MDHHS EBL = ≥ 3.5 µg/dL (MCL 333.5474,
+          CDC 2021 Blood Lead Reference Value). MDHHS Form 633775 LIRA-EBL trigger. */}
+      {isEBL && hasChildren && (
+        <div style={{
+          backgroundColor: '#fef2f2',
+          border: '2px solid #dc2626',
+          borderLeft: '6px solid #991b1b',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          borderRadius: '4px',
+          fontSize: '13px',
+          color: '#7f1d1d',
+          lineHeight: '1.6'
+        }}>
+          <div style={{display: 'flex', gap: '12px'}}>
+            <span style={{fontSize: '20px', flexShrink: 0}}>⚠️</span>
+            <div>
+              <strong style={{fontSize: '14px', display: 'block', marginBottom: '4px'}}>
+                ELEVATED BLOOD LEAD LEVEL (EBL) &mdash; reported BLL {bloodLeadNumeric} µg/dL
+              </strong>
+              This reading meets or exceeds the MDHHS EBL threshold of 3.5 µg/dL
+              (<strong>MCL 333.5474</strong>, CDC 2021 Blood Lead Reference Value).
+              An <strong>LIRA-EBL investigation (MDHHS Form 633775)</strong> is
+              required under Part 54A. Confirm the family&apos;s pediatrician or the
+              child&apos;s local health department has been notified, and document
+              case management referrals. The final report must flag this unit as a
+              Michigan EBL investigation, not a routine lead hazard screen.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lead Service Line notice — EPA LCRI (89 FR 86502, Oct 30 2024). 10-year
+          LSL replacement deadline; interim tap-water sampling requirements. */}
+      {hasLeadServiceLine && (
+        <div style={{
+          backgroundColor: '#fffbeb',
+          border: '2px solid #f59e0b',
+          borderLeft: '6px solid #b45309',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          borderRadius: '4px',
+          fontSize: '13px',
+          color: '#78350f',
+          lineHeight: '1.6'
+        }}>
+          <div style={{display: 'flex', gap: '12px'}}>
+            <span style={{fontSize: '20px', flexShrink: 0}}>🚰</span>
+            <div>
+              <strong style={{fontSize: '14px', display: 'block', marginBottom: '4px'}}>
+                LEAD SERVICE LINE IDENTIFIED &mdash; water is a significant Pb exposure route
+              </strong>
+              The occupant reports a <strong>lead water service line</strong>. Under
+              the <strong>EPA Lead and Copper Rule Improvements (LCRI), 40 CFR Part
+              141 Subpart I, 89 FR 86502 (Oct 30 2024)</strong>, the water system
+              must replace all lead and galvanized-requiring-replacement service lines
+              within <strong>10 years</strong> (baseline compliance Oct 16 2027).
+              Add a <strong>first-draw tap-water sampling</strong> recommendation to
+              the report (EPA action level 10 µg/L), and consider an NSF/ANSI 53
+              lead-certified point-of-use filter as an interim measure. Note the
+              LSL materially increases cumulative Pb intake even when paint/dust
+              are in compliance.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Section 1: Household Information */}
       <div style={styles.section}>
