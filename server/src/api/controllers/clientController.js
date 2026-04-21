@@ -1,9 +1,11 @@
+import crypto from 'crypto';
 import { query } from '../../db/connection.js';
 import { createNotification } from './notificationController.js';
 import {
   sendInspectionCompleteEmail,
   sendReportDeliveryEmail,
   sendClientPortalAccessEmail,
+  sendClientShareInviteEmail,
   sendInspectionScheduledEmail,
   sendInspectionRequestConfirmEmail,
   sendNewInspectionRequestAlertEmail,
@@ -13,6 +15,12 @@ import {
   sendRequestDeclinedEmail,
   sendProjectStatusUpdateEmail,
 } from '../../utils/email.js';
+
+// APP_URL default matches email.js (abatecomply.com as authoritative
+// zone); kept as a local constant so invite links don't depend on
+// the email module being imported in any particular order.
+const APP_URL = process.env.APP_URL || 'https://abatecomply.com';
+const CLIENT_INVITE_TTL_DAYS = 14;
 
 // ─── Helper: verify user is a client ────────────────────
 async function requireClient(userId) {
@@ -369,113 +377,224 @@ export async function getUnreadCount(req, res) {
 //  INSPECTOR-FACING ENDPOINTS (manage client access)
 // ═══════════════════════════════════════════════════════════
 
-// POST /api/client/share — share a project with a client by email
+// POST /api/client/share — share a project with a client by email.
+//
+// Two code paths, chosen by whether a registered `client` user already
+// exists for that email:
+//
+//   (A) EXISTING CLIENT — grant access via client_projects pivot, send
+//       sendClientPortalAccessEmail, notify in-app. Status 200
+//       { status: 'shared' }.
+//
+//   (B) NEW CLIENT — create (or refresh) a client_invites row with a
+//       128-hex one-time token, send sendClientShareInviteEmail, and
+//       return 201 { status: 'invited' }. When the recipient opens the
+//       email link and accepts the invite at /invite/client/:token,
+//       clientInviteController.acceptInvite will create the user row
+//       and populate client_projects.
+//
+// Rejected path (C): email belongs to a non-client (inspector/admin)
+// account — returns 400 NOT_CLIENT so the inspector sees the mismatch
+// instead of silently re-granting.
+//
+// Optional body field `message` is passed through to the invite email
+// and stored on the invite row. `name` is optional and only used to
+// personalize the greeting in the invite email.
 export async function shareProject(req, res) {
   await requireInspector(req.user.userId);
-  const { projectId, clientEmail } = req.body;
+  const { projectId, clientEmail, message, name } = req.body;
 
   if (!projectId || !clientEmail) {
     return res.status(400).json({ error: 'projectId and clientEmail are required', code: 'VALIDATION_ERROR' });
   }
 
-  // Verify inspector owns this project
-  const proj = await query(
-    'SELECT id, user_id, team_id FROM projects WHERE id = $1 AND is_deleted = false',
-    [projectId]
-  );
-  if (proj.rows.length === 0) {
-    return res.status(404).json({ error: 'Project not found', code: 'NOT_FOUND' });
-  }
-  if (proj.rows[0].user_id !== req.user.userId) {
-    // Check team membership
-    if (proj.rows[0].team_id) {
-      const tm = await query(
-        'SELECT role FROM team_members WHERE team_id = $1 AND user_id = $2',
-        [proj.rows[0].team_id, req.user.userId]
-      );
-      if (tm.rows.length === 0 || tm.rows[0].role === 'viewer') {
-        return res.status(403).json({ error: 'You cannot share this project', code: 'FORBIDDEN' });
-      }
-    } else {
-      return res.status(403).json({ error: 'You do not own this project', code: 'FORBIDDEN' });
-    }
+  const normalizedEmail = clientEmail.trim().toLowerCase();
+  // Basic shape check — we don't want to "invite" `not-an-email`.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return res.status(400).json({ error: 'Please enter a valid email address', code: 'VALIDATION_ERROR' });
   }
 
-  // Find client user
-  const clientUser = await query(
-    'SELECT id, role, full_name FROM users WHERE email = $1 AND active = true',
-    [clientEmail.toLowerCase()]
-  );
-  if (clientUser.rows.length === 0) {
-    return res.status(404).json({
-      error: 'No client account found with that email. The client must register at /portal first.',
-      code: 'CLIENT_NOT_FOUND',
-    });
-  }
-  if (clientUser.rows[0].role !== 'client') {
-    return res.status(400).json({
-      error: 'That email belongs to an inspector account, not a client.',
-      code: 'NOT_CLIENT',
-    });
-  }
-
-  // Create or ignore if already shared
-  const shareResult = await query(
-    `INSERT INTO client_projects (client_id, project_id, granted_by)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (client_id, project_id) DO UPDATE SET updated_at = NOW()
-     RETURNING project_id`,
-    [clientUser.rows[0].id, projectId, req.user.userId]
-  );
-
-  // Notify client that project was shared
-  if (shareResult.rows.length > 0) {
-    const projectInfo = await query(
-      'SELECT project_name FROM projects WHERE id = $1',
-      [projectId]
-    );
-    if (projectInfo.rows.length > 0) {
-      const projectName = projectInfo.rows[0].project_name;
-
-      // Create notification
-      await createNotification(
-        clientUser.rows[0].id,
-        'project_shared',
-        'Project Shared with You',
-        `You now have access to: ${projectName}`,
-        projectId,
-        'project'
-      );
-
-      // Send email with portal access details
-      await sendClientPortalAccessEmail(
-        clientEmail.toLowerCase(),
-        clientUser.rows[0].full_name || 'Client',
-        projectName,
-        `${process.env.APP_URL || 'https://leadflow-ai-production-11f3.up.railway.app'}/portal`
-      ).catch(err => console.error('Client portal access email failed:', err.message));
-    }
-  }
-
-  res.json({ success: true, clientEmail: clientEmail.toLowerCase() });
-}
-
-// DELETE /api/client/share — revoke client access to a project
-export async function revokeProjectAccess(req, res) {
-  await requireInspector(req.user.userId);
-  const { projectId, clientId } = req.body;
-
-  if (!projectId || !clientId) {
-    return res.status(400).json({ error: 'projectId and clientId are required', code: 'VALIDATION_ERROR' });
-  }
-
-  // Verify inspector owns/can access this project
+  // Verify inspector owns/can share this project (owner, or team member
+  // with non-viewer role).
   const access = await verifyInspectorProjectAccess(req.user.userId, projectId);
   if (!access.ok) {
     return res.status(access.status).json({ error: access.reason, code: access.code });
   }
 
-  // Get client and project info before deleting
+  const projectInfoResult = await query(
+    `SELECT p.project_name, p.property_address, p.city, p.state_code, p.team_id,
+            u.full_name AS inspector_name,
+            o.name AS inspector_company
+     FROM projects p
+     JOIN users u ON u.id = p.user_id
+     LEFT JOIN organizations o ON o.id = u.organization_id
+     WHERE p.id = $1`,
+    [projectId]
+  );
+  const projectInfo = projectInfoResult.rows[0] || {};
+  const projectName = projectInfo.project_name || 'Your inspection project';
+  const projectAddress = [projectInfo.property_address, projectInfo.city, projectInfo.state_code]
+    .filter(Boolean).join(', ');
+
+  const senderResult = await query(
+    `SELECT u.full_name, o.name AS org_name
+     FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
+     WHERE u.id = $1`,
+    [req.user.userId]
+  );
+  const inspectorName = senderResult.rows[0]?.full_name || 'Your inspector';
+  const inspectorCompany = senderResult.rows[0]?.org_name || projectInfo.inspector_company || '';
+
+  // Find existing user with this email
+  const existingUser = await query(
+    'SELECT id, role, full_name, active FROM users WHERE email = $1',
+    [normalizedEmail]
+  );
+
+  // Path (C) — email belongs to a non-client account. Surface this
+  // explicitly rather than silently upgrading or mis-routing them.
+  if (existingUser.rows.length > 0 && existingUser.rows[0].role !== 'client') {
+    return res.status(400).json({
+      error: 'That email belongs to an inspector or staff account, not a client. Ask the client to use a personal email, or contact support.',
+      code: 'NOT_CLIENT',
+    });
+  }
+
+  // Path (A) — client account already exists → immediate share.
+  if (existingUser.rows.length > 0) {
+    const clientId = existingUser.rows[0].id;
+
+    // Idempotent insert: re-sharing is a no-op on the row level but we
+    // still want to re-send the "shared" notification + email so the
+    // client gets a fresh ping (matches the mental model of clicking
+    // "Share" again).
+    const alreadyShared = await query(
+      'SELECT id FROM client_projects WHERE client_id = $1 AND project_id = $2',
+      [clientId, projectId]
+    );
+
+    await query(
+      `INSERT INTO client_projects (client_id, project_id, granted_by)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (client_id, project_id) DO UPDATE
+         SET updated_at = NOW(), granted_by = EXCLUDED.granted_by`,
+      [clientId, projectId, req.user.userId]
+    );
+
+    await createNotification(
+      clientId,
+      'project_shared',
+      'Project Shared with You',
+      `You now have access to: ${projectName}`,
+      projectId,
+      'project'
+    );
+
+    sendClientPortalAccessEmail(
+      normalizedEmail,
+      existingUser.rows[0].full_name || 'Client',
+      projectName,
+      `${APP_URL}/portal`
+    ).catch(err => console.error('Client portal access email failed:', err.message));
+
+    return res.json({
+      success: true,
+      status: alreadyShared.rows.length > 0 ? 're_shared' : 'shared',
+      clientEmail: normalizedEmail,
+    });
+  }
+
+  // Path (B) — no account yet → generate invite token and email.
+  const token = crypto.randomBytes(32).toString('hex'); // 64 hex chars, well under 128 col
+  const expiresAt = new Date(Date.now() + CLIENT_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  // Expire any prior pending invite for this (email, project) so re-
+  // sending "Share" rotates the token rather than leaving stale links
+  // active. Accepted invites are left alone — history matters for
+  // audit and reporting.
+  await query(
+    `UPDATE client_invites
+     SET revoked_at = NOW(), updated_at = NOW()
+     WHERE LOWER(email) = $1
+       AND project_id = $2
+       AND accepted_at IS NULL
+       AND revoked_at IS NULL`,
+    [normalizedEmail, projectId]
+  );
+
+  const inviteInsert = await query(
+    `INSERT INTO client_invites
+       (email, name, invited_by, project_id, team_id, token, expires_at, message)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id`,
+    [normalizedEmail, name || null, req.user.userId, projectId, projectInfo.team_id || null,
+     token, expiresAt, message || null]
+  );
+
+  const inviteUrl = `${APP_URL}/invite/client/${token}`;
+  sendClientShareInviteEmail(
+    normalizedEmail,
+    name || null,
+    inspectorName,
+    inspectorCompany,
+    projectName,
+    projectAddress,
+    message || null,
+    inviteUrl
+  ).catch(err => console.error('Client share invite email failed:', err.message));
+
+  return res.status(201).json({
+    success: true,
+    status: 'invited',
+    inviteId: inviteInsert.rows[0].id,
+    clientEmail: normalizedEmail,
+    expiresAt,
+  });
+}
+
+// DELETE /api/client/share — revoke a client's access to a project, or
+// cancel a pending invite.
+//
+// Body accepts EITHER:
+//   { projectId, clientId }   — revoke an existing member's access
+//   { projectId, inviteId }   — cancel a pending invite (revoked_at=NOW)
+//
+// Cancelling a pending invite is silent — no email is sent, because
+// the client hasn't opted in yet. Revoking an existing member sends
+// sendClientAccessRevokedEmail (unchanged from previous behavior).
+export async function revokeProjectAccess(req, res) {
+  await requireInspector(req.user.userId);
+  const { projectId, clientId, inviteId } = req.body;
+
+  if (!projectId || (!clientId && !inviteId)) {
+    return res.status(400).json({
+      error: 'projectId and either clientId or inviteId are required',
+      code: 'VALIDATION_ERROR',
+    });
+  }
+
+  const access = await verifyInspectorProjectAccess(req.user.userId, projectId);
+  if (!access.ok) {
+    return res.status(access.status).json({ error: access.reason, code: access.code });
+  }
+
+  if (inviteId) {
+    // Cancel a pending invite. Scope by project_id so you can't revoke
+    // someone else's invite by ID fuzzing.
+    const result = await query(
+      `UPDATE client_invites
+       SET revoked_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND project_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL
+       RETURNING id`,
+      [inviteId, projectId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Invite not found or already handled', code: 'NOT_FOUND' });
+    }
+    return res.json({ success: true, revoked: 'invite' });
+  }
+
+  // Existing member revocation path
   const revokeClient = await query('SELECT email, full_name FROM users WHERE id = $1', [clientId]);
   const revokeProject = await query('SELECT project_name FROM projects WHERE id = $1', [projectId]);
   const revoker = await query('SELECT full_name FROM users WHERE id = $1', [req.user.userId]);
@@ -485,7 +604,6 @@ export async function revokeProjectAccess(req, res) {
     [clientId, projectId]
   );
 
-  // Notify client their access was revoked
   if (revokeClient.rows.length > 0 && revokeProject.rows.length > 0) {
     sendClientAccessRevokedEmail(
       revokeClient.rows[0].email,
@@ -495,21 +613,24 @@ export async function revokeProjectAccess(req, res) {
     ).catch(err => console.error('Client access revoked email failed:', err.message));
   }
 
-  res.json({ success: true });
+  res.json({ success: true, revoked: 'member' });
 }
 
-// GET /api/client/shared/:projectId — list clients who have access to a project
+// GET /api/client/shared/:projectId — list clients who have access to a
+// project, plus any pending invites that haven't been accepted yet.
+// Each row has a `kind` field: 'member' (full access) or 'invite'
+// (pending accept). The UI uses this to show pending clients greyed
+// out with a "Pending" badge and an option to resend or revoke.
 export async function listProjectClients(req, res) {
   await requireInspector(req.user.userId);
   const { projectId } = req.params;
 
-  // Verify inspector owns/can access this project
   const access = await verifyInspectorProjectAccess(req.user.userId, projectId);
   if (!access.ok) {
     return res.status(access.status).json({ error: access.reason, code: access.code });
   }
 
-  const result = await query(
+  const members = await query(
     `SELECT cp.id, cp.granted_at, u.id AS client_id, u.email, u.full_name, u.company_name
      FROM client_projects cp
      JOIN users u ON u.id = cp.client_id
@@ -518,15 +639,35 @@ export async function listProjectClients(req, res) {
     [projectId]
   );
 
+  const invites = await query(
+    `SELECT id, email, name, created_at, expires_at
+     FROM client_invites
+     WHERE project_id = $1 AND accepted_at IS NULL AND revoked_at IS NULL
+     ORDER BY created_at DESC`,
+    [projectId]
+  );
+
   res.json({
-    clients: result.rows.map(r => ({
-      id: r.id,
-      clientId: r.client_id,
-      email: r.email,
-      fullName: r.full_name,
-      companyName: r.company_name,
-      grantedAt: r.granted_at,
-    })),
+    clients: [
+      ...members.rows.map(r => ({
+        id: r.id,
+        kind: 'member',
+        clientId: r.client_id,
+        email: r.email,
+        fullName: r.full_name,
+        companyName: r.company_name,
+        grantedAt: r.granted_at,
+      })),
+      ...invites.rows.map(r => ({
+        id: r.id,
+        kind: 'invite',
+        inviteId: r.id,
+        email: r.email,
+        fullName: r.name,
+        invitedAt: r.created_at,
+        expiresAt: r.expires_at,
+      })),
+    ],
   });
 }
 

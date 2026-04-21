@@ -61,8 +61,10 @@ export default function InspectorClientPanel(props = {}) {
   // CLIENT ACCESS TAB
   // ═══════════════════════════════════════════════════════════
   const [selectedAccessProjectId, setSelectedAccessProjectId] = useState(null);
-  const [sharedWith, setSharedWith] = useState([]); // List of clients with access
+  const [sharedWith, setSharedWith] = useState([]); // List of clients + pending invites
   const [shareEmail, setShareEmail] = useState('');
+  const [shareName, setShareName] = useState('');
+  const [shareMessage, setShareMessage] = useState('');
   const [sharingLoading, setSharingLoading] = useState(false);
 
   // ─────────────────────────────────────────────────────────────
@@ -152,7 +154,7 @@ export default function InspectorClientPanel(props = {}) {
     const notes = responseNotes[requestId] || '';
     setRequestResponding(prev => ({ ...prev, [requestId]: true }));
     try {
-      await apiCall('PUT', `/client/requests/${requestId}/review`, { status, notes });
+      await apiCall('PUT', `/client/requests/${requestId}/review`, { status, responseNote: notes });
       setIncomingRequests(prev =>
         prev.map(r => r.id === requestId ? { ...r, status } : r)
       );
@@ -203,7 +205,7 @@ export default function InspectorClientPanel(props = {}) {
     try {
       await apiCall('PUT', `/client/projects/${selectedStatusProjectId}/status`, {
         status: newStatus,
-        notes: statusNote,
+        statusNote,
       });
       setStatusNote('');
       setAllProjects(prev =>
@@ -215,9 +217,9 @@ export default function InspectorClientPanel(props = {}) {
     }
   }, [selectedStatusProjectId, statusNote]);
 
-  // Load projects when tab changes
+  // Load projects when status OR access tab is active (shared dropdown source)
   useEffect(() => {
-    if (activeTab === 'status') {
+    if (activeTab === 'status' || activeTab === 'access') {
       loadAllProjects();
     }
   }, [activeTab, loadAllProjects]);
@@ -248,31 +250,47 @@ export default function InspectorClientPanel(props = {}) {
 
     setSharingLoading(true);
     try {
-      await apiCall('POST', '/client/share', {
+      const body = {
         projectId: selectedAccessProjectId,
         clientEmail: shareEmail.trim(),
-      });
+      };
+      if (shareName.trim()) body.clientName = shareName.trim();
+      if (shareMessage.trim()) body.message = shareMessage.trim();
+      const result = await apiCall('POST', '/client/share', body);
+      const emailSent = shareEmail;
       setShareEmail('');
+      setShareName('');
+      setShareMessage('');
       await loadClientAccess(selectedAccessProjectId);
-      showMsg(`Project shared with ${shareEmail}!`);
+      if (result?.status === 'invited') {
+        showMsg(`Invite sent to ${emailSent} — they'll receive an email to create an account.`);
+      } else if (result?.status === 're_shared') {
+        showMsg(`${emailSent} already had access — re-notified them.`);
+      } else {
+        showMsg(`Project shared with ${emailSent}!`);
+      }
     } catch (err) {
       setError(err.message || 'Failed to share project');
     } finally {
       setSharingLoading(false);
     }
-  }, [shareEmail, selectedAccessProjectId, loadClientAccess]);
+  }, [shareEmail, shareName, shareMessage, selectedAccessProjectId, loadClientAccess]);
 
-  const handleRevokeAccess = useCallback(async (clientId) => {
+  const handleRevokeAccess = useCallback(async (row) => {
     if (!selectedAccessProjectId) return;
-    if (!confirm('Remove this client\'s access to the project? They will no longer be able to view it.')) return;
+    const isInvite = row.kind === 'invite';
+    const prompt = isInvite
+      ? 'Cancel this pending invite? The recipient will no longer be able to use the invite link.'
+      : 'Remove this client\'s access to the project? They will no longer be able to view it.';
+    if (!confirm(prompt)) return;
     setSharingLoading(true);
     try {
-      await apiCall('DELETE', '/client/share', {
-        projectId: selectedAccessProjectId,
-        clientId,
-      });
+      const body = { projectId: selectedAccessProjectId };
+      if (isInvite) body.inviteId = row.id;
+      else body.clientId = row.id;
+      await apiCall('DELETE', '/client/share', body);
       await loadClientAccess(selectedAccessProjectId);
-      showMsg('Access revoked!');
+      showMsg(isInvite ? 'Invite cancelled!' : 'Access revoked!');
     } catch (err) {
       setError(err.message || 'Failed to revoke access');
     } finally {
@@ -462,29 +480,32 @@ export default function InspectorClientPanel(props = {}) {
                         No messages yet. Start the conversation!
                       </div>
                     ) : (
-                      messages.map(msg => (
+                      messages.map(msg => {
+                        const isInspector = msg.senderRole === 'inspector';
+                        return (
                         <div
                           key={msg.id}
                           style={{
-                            padding: '12px 16px', borderRadius: '6px',
-                            background: msg.sender === 'inspector' ? '#bee3f8' : '#e6fffa',
-                            color: msg.sender === 'inspector' ? '#2c5282' : '#234e52',
+                            padding: '12px 16px',
+                            background: isInspector ? '#bee3f8' : '#e6fffa',
+                            color: isInspector ? '#2c5282' : '#234e52',
                             fontSize: '14px', wordWrap: 'break-word',
                             borderRadius: '8px',
-                            marginLeft: msg.sender === 'inspector' ? 'auto' : '0',
-                            marginRight: msg.sender === 'inspector' ? '0' : 'auto',
+                            marginLeft: isInspector ? 'auto' : '0',
+                            marginRight: isInspector ? '0' : 'auto',
                             maxWidth: '70%',
                           }}
                         >
                           <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>
-                            {msg.sender === 'inspector' ? 'You' : msg.senderName || 'Client'}
+                            {isInspector ? 'You' : msg.senderName || 'Client'}
                           </div>
                           <div>{msg.content}</div>
                           <div style={{ fontSize: '11px', opacity: 0.6, marginTop: '4px' }}>
                             {new Date(msg.createdAt).toLocaleString()}
                           </div>
                         </div>
-                      ))
+                        );
+                      })
                     )}
                     <div ref={msgEndRef} />
                   </div>
@@ -853,16 +874,51 @@ export default function InspectorClientPanel(props = {}) {
                 <form onSubmit={handleShareWithClient} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#718096', marginBottom: '8px' }}>
-                      Client Email
+                      Client Email <span style={{ color: '#e53e3e' }}>*</span>
                     </label>
                     <input
                       type="email"
                       value={shareEmail}
                       onChange={(e) => setShareEmail(e.target.value)}
                       placeholder="client@example.com"
+                      required
                       style={{
                         width: '100%', padding: '10px 12px', border: '1px solid #cbd5e0',
                         borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit',
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#718096', marginBottom: '8px' }}>
+                      Client Name <span style={{ color: '#a0aec0', fontWeight: '400' }}>(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={shareName}
+                      onChange={(e) => setShareName(e.target.value)}
+                      placeholder="Jane Homeowner"
+                      style={{
+                        width: '100%', padding: '10px 12px', border: '1px solid #cbd5e0',
+                        borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit',
+                      }}
+                    />
+                    <div style={{ fontSize: '11px', color: '#a0aec0', marginTop: '4px' }}>
+                      Used in the invite email greeting if they don't have an account yet.
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#718096', marginBottom: '8px' }}>
+                      Personal Message <span style={{ color: '#a0aec0', fontWeight: '400' }}>(optional)</span>
+                    </label>
+                    <textarea
+                      value={shareMessage}
+                      onChange={(e) => setShareMessage(e.target.value)}
+                      placeholder="Hi Jane — sharing your lead inspection results. Let me know if you have any questions."
+                      rows={3}
+                      style={{
+                        width: '100%', padding: '10px 12px', border: '1px solid #cbd5e0',
+                        borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit',
+                        resize: 'vertical',
                       }}
                     />
                   </div>
@@ -871,14 +927,18 @@ export default function InspectorClientPanel(props = {}) {
                     disabled={!shareEmail.trim() || sharingLoading}
                     style={{
                       padding: '10px 16px',
-                      background: shareEmail.trim() ? '#3182ce' : '#cbd5e0',
+                      background: shareEmail.trim() && !sharingLoading ? '#3182ce' : '#cbd5e0',
                       color: '#fff', border: 'none', borderRadius: '6px',
-                      cursor: shareEmail.trim() ? 'pointer' : 'default',
+                      cursor: shareEmail.trim() && !sharingLoading ? 'pointer' : 'default',
                       fontSize: '14px', fontWeight: '500',
                     }}
                   >
                     {sharingLoading ? 'Sharing...' : '✓ Share Project'}
                   </button>
+                  <div style={{ fontSize: '11px', color: '#718096', lineHeight: 1.5, marginTop: '-4px' }}>
+                    If the email matches an existing client, they'll be granted access immediately.
+                    Otherwise, they'll receive a secure invite link to create their portal account.
+                  </div>
                 </form>
               )}
             </div>
@@ -906,38 +966,63 @@ export default function InspectorClientPanel(props = {}) {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {sharedWith.map(client => (
-                    <div
-                      key={client.id}
-                      style={{
-                        padding: '12px', background: '#f7fafc', borderRadius: '6px',
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '14px', fontWeight: '500', color: '#2d3748' }}>
-                          {client.clientName}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#718096', marginTop: '2px' }}>
-                          {client.clientEmail}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#a0aec0', marginTop: '4px' }}>
-                          Shared {new Date(client.grantedAt).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleRevokeAccess(client.id)}
-                        disabled={sharingLoading}
+                  {sharedWith.map(row => {
+                    const isInvite = row.kind === 'invite';
+                    const displayName = isInvite ? (row.name || row.email) : (row.fullName || row.email);
+                    const displayEmail = row.email;
+                    const dateLabel = isInvite
+                      ? `Invited ${row.createdAt ? new Date(row.createdAt).toLocaleDateString() : ''}`
+                      : `Shared ${row.grantedAt ? new Date(row.grantedAt).toLocaleDateString() : ''}`;
+                    const key = `${isInvite ? 'i' : 'c'}-${row.id}`;
+                    return (
+                      <div
+                        key={key}
                         style={{
-                          padding: '6px 12px', background: '#fed7d7', color: '#c53030',
-                          border: 'none', borderRadius: '4px', cursor: 'pointer',
-                          fontSize: '12px', fontWeight: '500',
+                          padding: '12px',
+                          background: isInvite ? '#fffbeb' : '#f7fafc',
+                          borderRadius: '6px',
+                          border: isInvite ? '1px solid #fcd34d' : '1px solid transparent',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                         }}
                       >
-                        ✗ Revoke
-                      </button>
-                    </div>
-                  ))}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ fontSize: '14px', fontWeight: '500', color: '#2d3748' }}>
+                              {displayName}
+                            </div>
+                            {isInvite && (
+                              <span style={{
+                                fontSize: '10px', fontWeight: '600',
+                                padding: '2px 8px', borderRadius: '10px',
+                                background: '#fbbf24', color: '#78350f',
+                                textTransform: 'uppercase', letterSpacing: '0.3px',
+                              }}>
+                                Pending
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#718096', marginTop: '2px' }}>
+                            {displayEmail}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#a0aec0', marginTop: '4px' }}>
+                            {dateLabel}
+                            {isInvite && row.expiresAt && ` · Expires ${new Date(row.expiresAt).toLocaleDateString()}`}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRevokeAccess(row)}
+                          disabled={sharingLoading}
+                          style={{
+                            padding: '6px 12px', background: '#fed7d7', color: '#c53030',
+                            border: 'none', borderRadius: '4px', cursor: 'pointer',
+                            fontSize: '12px', fontWeight: '500',
+                          }}
+                        >
+                          {isInvite ? '✗ Cancel' : '✗ Revoke'}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

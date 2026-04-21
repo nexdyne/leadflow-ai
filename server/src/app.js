@@ -7,6 +7,7 @@ import projectRoutes from './api/routes/projects.js';
 import photoRoutes from './api/routes/photos.js';
 import teamRoutes from './api/routes/teams.js';
 import clientRoutes from './api/routes/client.js';
+import clientInviteRoutes from './api/routes/clientInvite.js';
 import licenseRoutes from './api/routes/license.js';
 import adminRoutes from './api/routes/admin.js';
 import notificationRoutes from './api/routes/notifications.js';
@@ -46,6 +47,8 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/photos', photoRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/client', clientRoutes);
+// Public invite endpoints — NO auth middleware, the token IS the auth.
+app.use('/api/client-invite', clientInviteRoutes);
 app.use('/api/license', licenseRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);

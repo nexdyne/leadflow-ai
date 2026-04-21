@@ -82,10 +82,14 @@ export default function LoginPage({
     }
   }
 
-  const accentColor = isClientPortal ? '#4a5568' : '#2c5282';
+  // Colors: clients get a warmer sky-blue/teal palette so the portal
+  // feels approachable and unmistakably "for homeowners", not a drab
+  // copy of the inspector login. Inspector surface keeps the existing
+  // deep-navy technical vibe.
+  const accentColor = isClientPortal ? '#0ea5e9' : '#2c5282';
   const audienceLabel = isClientPortal ? 'Client Portal' : 'Inspector Login';
   const tagline = isClientPortal
-    ? 'Sign in to view inspection reports and request services.'
+    ? 'View your inspection, check status, and message your inspector directly.'
     : 'Michigan LIRA-EBL inspection platform for licensed inspectors.';
 
   return (
@@ -98,22 +102,70 @@ export default function LoginPage({
       padding: '24px',
       gap: '0',
       background: isClientPortal
-        ? 'linear-gradient(135deg, #2d3748 0%, #4a5568 50%, #718096 100%)'
+        ? 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 45%, #bae6fd 100%)'
         : 'linear-gradient(135deg, #1a365d 0%, #2c5282 50%, #2b6cb0 100%)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
     }}>
+      {/* Client-portal hero card lives ABOVE the sign-in card — a
+          welcome block that introduces what the portal is for. This
+          replaces the drab dark-grey variant and matches C45's
+          "give the client UI the kind of face it needs" directive. */}
+      {isClientPortal && (
+        <div style={{
+          background: '#fff',
+          borderRadius: '16px',
+          padding: '24px 28px',
+          width: '100%',
+          maxWidth: '540px',
+          boxShadow: '0 12px 40px rgba(14, 165, 233, 0.15)',
+          marginBottom: '16px',
+          display: 'grid',
+          gridTemplateColumns: '56px 1fr',
+          gap: '16px',
+          alignItems: 'center',
+          border: '1px solid rgba(14, 165, 233, 0.12)',
+        }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #0ea5e9, #38bdf8)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', flexShrink: 0,
+            boxShadow: '0 6px 16px rgba(14, 165, 233, 0.35)',
+          }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9,22 9,12 15,12 15,22" />
+            </svg>
+          </div>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#0c4a6e', marginBottom: 4 }}>
+              Welcome to your LeadFlow Client Portal
+            </div>
+            <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
+              Follow your inspection in real time, see photos and reports as soon
+              as they're ready, and message your inspector with questions.
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{
         background: '#fff',
-        borderRadius: '12px',
+        borderRadius: isClientPortal ? '16px' : '12px',
         padding: '40px',
         width: '100%',
-        maxWidth: '420px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        maxWidth: isClientPortal ? '440px' : '420px',
+        boxShadow: isClientPortal
+          ? '0 20px 50px rgba(14, 165, 233, 0.18)'
+          : '0 20px 60px rgba(0,0,0,0.3)',
+        border: isClientPortal ? '1px solid rgba(14, 165, 233, 0.1)' : undefined,
       }}>
         {/* Logo / Header */}
         <div style={{ textAlign: 'center', marginBottom: '8px' }}>
           <div style={{
-            fontSize: '32px', fontWeight: '700', color: '#1a365d', marginBottom: '4px',
+            fontSize: '32px', fontWeight: '700',
+            color: isClientPortal ? '#0c4a6e' : '#1a365d',
+            marginBottom: '4px',
           }}>
             LeadFlow AI
           </div>
@@ -124,14 +176,14 @@ export default function LoginPage({
             letterSpacing: '1.6px',
             textTransform: 'uppercase',
             color: accentColor,
-            background: isClientPortal ? '#edf2f7' : '#ebf8ff',
+            background: isClientPortal ? '#e0f2fe' : '#ebf8ff',
             padding: '4px 10px',
             borderRadius: '999px',
             marginTop: '6px',
           }}>
             {audienceLabel}
           </div>
-          <div style={{ color: '#718096', fontSize: '13px', marginTop: '10px' }}>
+          <div style={{ color: '#64748b', fontSize: '13px', marginTop: '10px', lineHeight: 1.5 }}>
             {tagline}
           </div>
         </div>

@@ -3,6 +3,7 @@ import { query } from '../db/connection.js';
 
 // Lazy init — Resend SDK throws if constructed without an API key,
 // so we only create the instance when actually sending an email.
+
 let _resend = null;
 function getResend() {
   if (!_resend && process.env.RESEND_API_KEY) {
@@ -654,6 +655,69 @@ export async function sendInspectionScheduledEmail(to, clientName, projectName, 
   `);
 
   return sendEmail(to, subject, html, 'inspection_scheduled');
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  21a. CLIENT SHARE INVITE (new client — needs to accept + set pw)
+// ═══════════════════════════════════════════════════════════
+//
+// Sent when an inspector shares a project with an email that does NOT
+// yet belong to a registered user. The email contains a one-time invite
+// link that lands the recipient on /invite/client/:token, where they
+// set a password and get auto-granted access to the project. Distinct
+// from sendClientPortalAccessEmail below — which assumes the client
+// already has an account — so the subject line and CTA tell the
+// recipient exactly what they're being asked to do (create account).
+
+export async function sendClientShareInviteEmail(
+  to,
+  inviteeName,
+  inspectorName,
+  inspectorCompany,
+  projectName,
+  projectAddress,
+  personalMessage,
+  inviteUrl,
+) {
+  const subject = `${inspectorName || 'Your inspector'} invited you to view ${projectName}`;
+  const greeting = inviteeName ? `Hi ${inviteeName},` : 'Hi there,';
+  const companyLine = inspectorCompany
+    ? ` of <strong>${inspectorCompany}</strong>`
+    : '';
+  const addrLine = projectAddress
+    ? `<div style="color:#64748b; font-size:13px; margin-top:4px;">${projectAddress}</div>`
+    : '';
+  const personalBlock = personalMessage && personalMessage.trim()
+    ? `<div style="background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #ea580c;">
+         <div style="color:#9a3412; font-size:13px; font-weight:600; margin-bottom:6px;">Message from ${inspectorName || 'your inspector'}</div>
+         <div style="color:#7c2d12; font-size:14px; line-height:1.6; white-space:pre-wrap;">${personalMessage.trim()}</div>
+       </div>`
+    : '';
+  const html = emailLayout(subject, `
+    <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">You've been invited to your inspection project</h2>
+    <p style="color:#475569; line-height:1.6; margin:0 0 12px;">
+      ${greeting} <strong>${inspectorName || 'Your inspector'}</strong>${companyLine}
+      has invited you to follow along with your inspection in the ${APP_NAME} Client Portal.
+    </p>
+    <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #2563eb;">
+      <div style="color:#1e40af; font-size:14px; font-weight:600;">${projectName}</div>
+      ${addrLine}
+    </div>
+    ${personalBlock}
+    <p style="color:#475569; line-height:1.6; margin:0 0 12px;">
+      Click the button below to set a password and open your portal. Once you're in,
+      you'll be able to see the current status of your inspection, view photos and
+      reports as they're released, and message your inspector directly with questions.
+    </p>
+    ${buttonHtml('Accept Invitation & Set Password', inviteUrl)}
+    <p style="color:#94a3b8; font-size:12px; margin:16px 0 0; text-align:center;">
+      This invitation link expires in 14 days. If you weren't expecting this email,
+      you can safely ignore it.
+    </p>
+  `);
+
+  return sendEmail(to, subject, html, 'client_share_invite');
 }
 
 

@@ -81,6 +81,19 @@ export function AuthProvider({ children }) {
     return data.user;
   }, [refreshProfile]);
 
+  // Seed an already-issued session into the auth context, skipping
+  // the /auth/login roundtrip. Used by flows that receive a token
+  // from a non-login endpoint (e.g. client share-invite accept —
+  // POST /client-invite/:token/accept returns the fresh session
+  // straight from the invite-acceptance transaction, so there's no
+  // reason to turn around and call /auth/login again).
+  const applySession = useCallback(({ user: nextUser, token, refreshToken }) => {
+    if (!nextUser || !token) return;
+    setTokens(token, refreshToken);
+    setUser(nextUser);
+    refreshProfile();
+  }, [refreshProfile]);
+
   const updateDesignation = useCallback(async (designation) => {
     await apiCall('PUT', '/auth/designation', { designation });
     await refreshProfile();
@@ -115,6 +128,7 @@ export function AuthProvider({ children }) {
   const value = {
     user, loading, login, register, logout, isAuthenticated: !!user,
     isPlatformAdmin,
+    applySession,
     currentTeam, teamCount, refreshProfile, updateDesignation,
     verifyAndSetDesignation, checkLicense, setMemberLicense, changePassword,
   };

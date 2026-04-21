@@ -25,6 +25,7 @@ import PlatformAdminLoginPage from './components/auth/PlatformAdminLoginPage';
 import ProjectDashboard from './components/ProjectDashboard';
 import TeamManagement from './components/TeamManagement';
 import InviteAcceptPage from './components/InviteAcceptPage';
+import ClientInviteAcceptPage from './components/auth/ClientInviteAcceptPage';
 import ClientPortal from './components/ClientPortal';
 import UserManagement from './components/UserManagement';
 import ChangePasswordModal from './components/ChangePasswordModal';
@@ -49,6 +50,19 @@ function getInviteToken() {
   if (match) return match[1];
   const hash = window.location.hash;
   const hashMatch = hash.match(/^#\/invite\/([a-f0-9]+)$/i);
+  if (hashMatch) return hashMatch[1];
+  return null;
+}
+
+// /invite/client/:token — client share-invite accept flow (distinct
+// from /invite/:token which is the team-invite flow). We key off the
+// literal "/client/" segment so the two invite types never collide.
+function getClientInviteToken() {
+  const path = window.location.pathname;
+  const match = path.match(/^\/invite\/client\/([a-f0-9]{16,128})$/i);
+  if (match) return match[1];
+  const hash = window.location.hash;
+  const hashMatch = hash.match(/^#\/invite\/client\/([a-f0-9]{16,128})$/i);
   if (hashMatch) return hashMatch[1];
   return null;
 }
@@ -93,6 +107,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState(0);
   const [currentView, setCurrentView] = useState('dashboard'); // FIX 5: dashboard | teamMgmt | userMgmt | clientPanel | inspection | billing
   const [inviteToken, setInviteToken] = useState(null);
+  const [clientInviteToken, setClientInviteToken] = useState(null);
   const [portalMode, setPortalMode] = useState(false);
   const [platformLoginMode, setPlatformLoginMode] = useState(false);
   const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
@@ -113,8 +128,16 @@ function AppContent() {
 
   // Check URL on mount
   useEffect(() => {
-    const token = getInviteToken();
-    if (token) setInviteToken(token);
+    // Order matters: /invite/client/:token looks like /invite/:token to
+    // the team-invite regex, so check the specific client-invite path
+    // first and skip the generic setter when it matches.
+    const ciToken = getClientInviteToken();
+    if (ciToken) {
+      setClientInviteToken(ciToken);
+    } else {
+      const token = getInviteToken();
+      if (token) setInviteToken(token);
+    }
     if (isPortalPath()) setPortalMode(true);
     if (isAdminPath()) setPlatformLoginMode(true);
     if (isLoginPath()) setLoginMode(true);
@@ -327,6 +350,26 @@ function AppContent() {
     return <ForgotPasswordPage onBack={() => setForgotPasswordMode(false)} />;
   }
 
+  // ─── Client share-invite flow ──────────────────────────
+  // This is the "inspector shared a project with me" path. Distinct
+  // from the team invite below — a client has no account yet, so we
+  // drop them directly onto ClientInviteAcceptPage which handles the
+  // account-creation + project-grant + session-seed in one step.
+  if (clientInviteToken) {
+    return (
+      <ClientInviteAcceptPage
+        token={clientInviteToken}
+        onDone={() => {
+          // After a successful accept, flip into portal mode and clear
+          // the invite URL so the next render goes to ClientPortal.
+          setClientInviteToken(null);
+          window.history.replaceState(null, '', '/portal');
+          setPortalMode(true);
+        }}
+      />
+    );
+  }
+
   // ─── Invite flow ────────────────────────────────────────
   if (inviteToken) {
     if (!isAuthenticated) {
@@ -399,7 +442,19 @@ function AppContent() {
       return <LoginPage isClientPortal showPlatformAdminLink onPortalSwitch={() => setPortalMode(false)} onForgotPassword={() => setForgotPasswordMode(true)} />;
     }
     if (isClient) {
-      return <ClientPortal />;
+      // If the client was created with must_change_password=true (e.g.
+      // admin-reset flow), force the ChangePasswordModal to show ON TOP
+      // of ClientPortal before they can do anything. Previously this
+      // was bypassed because <ClientPortal /> returned straight from
+      // here and the modal block below was never reached.
+      return (
+        <>
+          {user?.mustChangePassword && (
+            <ChangePasswordModal onChangePassword={changePassword} onLogout={logout} />
+          )}
+          <ClientPortal />
+        </>
+      );
     }
     // Authenticated but NOT a client while the URL says /portal —
     // bounce them off the portal cleanly. We can't call setPortalMode
