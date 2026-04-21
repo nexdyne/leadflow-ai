@@ -740,3 +740,231 @@ export async function dismissAnnouncement(req, res) {
     res.status(500).json({ error: 'Failed to dismiss announcement' });
   }
 }
+
+
+// ═══════════════════════════════════════════════════════════
+//  PROJECTS / INSPECTIONS (admin visibility)
+// ═══════════════════════════════════════════════════════════
+
+// GET /api/platform/projects — list all projects with filters + pagination
+// Filters: search (address/project name), inspector_id, org_id, status (draft|active|deleted),
+//          inspection_type, date_from, date_to
+// Sort: created_at (default), updated_at, inspection_date
+export async function listProjects(req, res) {
+  try {
+    await requirePlatformAdmin(req.user.userId);
+  } catch (err) {
+    return res.status(err.status || 403).json({ error: err.message });
+  }
+
+  const {
+    search, inspector_id, org_id, status, inspection_type,
+    date_from, date_to,
+    sort = 'created_at', order = 'desc',
+    page = 1, limit = 50,
+  } = req.query;
+
+  const params = [];
+  const conditions = [];
+
+  if (search) {
+    params.push(`%${escapeIlike(search)}%`);
+    conditions.push(`(p.project_name ILIKE $${params.length} OR p.property_address ILIKE $${params.length} OR p.city ILIKE $${params.length})`);
+  }
+  if (inspector_id) {
+    params.push(parseInt(inspector_id));
+    conditions.push(`p.user_id = $${params.length}`);
+  }
+  if (org_id) {
+    params.push(parseInt(org_id));
+    conditions.push(`u.organization_id = $${params.length}`);
+  }
+  if (status === 'draft') conditions.push('p.is_draft = true AND p.is_deleted = false');
+  else if (status === 'active') conditions.push('p.is_draft = false AND p.is_deleted = false');
+  else if (status === 'deleted') conditions.push('p.is_deleted = true');
+  else conditions.push('p.is_deleted = false'); // default: exclude soft-deleted
+
+  if (inspection_type) {
+    params.push(inspection_type);
+    conditions.push(`p.inspection_type = $${params.length}`);
+  }
+  if (date_from) {
+    params.push(date_from);
+    conditions.push(`p.created_at >= $${params.length}`);
+  }
+  if (date_to) {
+    params.push(date_to);
+    conditions.push(`p.created_at <= $${params.length}`);
+  }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
+  const validSorts = ['created_at', 'updated_at', 'inspection_date', 'property_address'];
+  const sortCol = validSorts.includes(sort) ? sort : 'created_at';
+  const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
+
+  const pageNum = Math.max(1, parseInt(page));
+  const limitNum = Math.min(200, Math.max(1, parseInt(limit)));
+  const offset = (pageNum - 1) * limitNum;
+
+  try {
+    const [countResult, projectsResult] = await Promise.all([
+      query(`SELECT COUNT(*) FROM projects p LEFT JOIN users u ON u.id = p.user_id ${where}`, params),
+      query(
+        `SELECT p.id, p.project_name, p.property_address, p.city, p.state_code, p.zip,
+                p.year_built, p.inspection_date, p.inspection_type, p.program_type,
+                p.is_draft, p.is_deleted, p.created_at, p.updated_at,
+                p.user_id, u.email AS inspector_email, u.full_name AS inspector_name, u.role AS inspector_role,
+                u.organization_id, o.name AS org_name, o.subscription_plan,
+                p.team_id, t.name AS team_name,
+                (SELECT COUNT(*) FROM photos ph WHERE ph.project_id = p.id) AS photo_count
+         FROM projects p
+         LEFT JOIN users u ON u.id = p.user_id
+         LEFT JOIN organizations o ON o.id = u.organization_id
+         LEFT JOIN teams t ON t.id = p.team_id
+         ${where}
+         ORDER BY p.${sortCol} ${sortOrder} NULLS LAST
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limitNum, offset]
+      ),
+    ]);
+
+    const total = parseInt(countResult.rows[0].count);
+    const projects = projectsResult.rows.map((r) => ({
+      id: r.id,
+      projectName: r.project_name,
+      propertyAddress: r.property_address,
+      city: r.city,
+      stateCode: r.state_code,
+      zip: r.zip,
+      yearBuilt: r.year_built,
+      inspectionDate: r.inspection_date,
+      inspectionType: r.inspection_type,
+      programType: r.program_type,
+      isDraft: r.is_draft,
+      isDeleted: r.is_deleted,
+      status: r.is_deleted ? 'deleted' : r.is_draft ? 'draft' : 'active',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      inspectorId: r.user_id,
+      inspectorEmail: r.inspector_email,
+      inspectorName: r.inspector_name,
+      inspectorRole: r.inspector_role,
+      organizationId: r.organization_id,
+      orgName: r.org_name,
+      orgPlan: r.subscription_plan,
+      teamId: r.team_id,
+      teamName: r.team_name,
+      photoCount: parseInt(r.photo_count || 0),
+    }));
+
+    res.json({
+      projects,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.max(1, Math.ceil(total / limitNum)),
+    });
+  } catch (err) {
+    console.error('listProjects error:', err.message);
+    res.status(500).json({ error: 'Failed to load projects' });
+  }
+}
+
+// GET /api/platform/projects/:id — full detail for a single project
+export async function getProjectDetail(req, res) {
+  try {
+    await requirePlatformAdmin(req.user.userId);
+  } catch (err) {
+    return res.status(err.status || 403).json({ error: err.message });
+  }
+
+  const projectId = parseInt(req.params.id);
+  if (!projectId) {
+    return res.status(400).json({ error: 'Invalid project id' });
+  }
+
+  try {
+    const [projectResult, photosResult, auditResult] = await Promise.all([
+      query(
+        `SELECT p.*, u.email AS inspector_email, u.full_name AS inspector_name,
+                u.role AS inspector_role, u.organization_id,
+                o.name AS org_name, o.subscription_plan,
+                t.name AS team_name
+         FROM projects p
+         LEFT JOIN users u ON u.id = p.user_id
+         LEFT JOIN organizations o ON o.id = u.organization_id
+         LEFT JOIN teams t ON t.id = p.team_id
+         WHERE p.id = $1`,
+        [projectId]
+      ),
+      query(
+        `SELECT id, file_id, original_filename, file_size, mime_type, photo_index,
+                room, component, side, condition, category, caption, created_at
+         FROM photos WHERE project_id = $1 ORDER BY photo_index NULLS LAST, created_at`,
+        [projectId]
+      ),
+      query(
+        `SELECT id, actor_email, action, details, created_at
+         FROM audit_logs
+         WHERE target_type = 'project' AND target_id = $1
+         ORDER BY created_at DESC LIMIT 50`,
+        [projectId]
+      ),
+    ]);
+
+    if (projectResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const p = projectResult.rows[0];
+    // state_data can be large JSONB; summarize rather than return the whole blob
+    // Platform admin should see what was inspected, not replay the inspector's UI state.
+    const state = p.state_data || {};
+    const stateSummary = {
+      hasSignature: !!(state.signature || (state.signatures && Object.keys(state.signatures).length)),
+      hasSamples: Array.isArray(state.samples) ? state.samples.length : 0,
+      hasInterview: !!(state.interviewResponses && Object.keys(state.interviewResponses).length),
+      checklistComplete: state.checklistCompleteRatio || null,
+      reportGeneratedAt: state.lastReportGeneratedAt || null,
+      signedOffAt: state.signedOffAt || null,
+      qaStatus: state.qaStatus || null,
+    };
+
+    res.json({
+      project: {
+        id: p.id,
+        projectName: p.project_name,
+        propertyAddress: p.property_address,
+        city: p.city,
+        stateCode: p.state_code,
+        zip: p.zip,
+        yearBuilt: p.year_built,
+        inspectionDate: p.inspection_date,
+        inspectionType: p.inspection_type,
+        programType: p.program_type,
+        isDraft: p.is_draft,
+        isDeleted: p.is_deleted,
+        status: p.is_deleted ? 'deleted' : p.is_draft ? 'draft' : 'active',
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+        inspectorId: p.user_id,
+        inspectorEmail: p.inspector_email,
+        inspectorName: p.inspector_name,
+        inspectorRole: p.inspector_role,
+        organizationId: p.organization_id,
+        orgName: p.org_name,
+        orgPlan: p.subscription_plan,
+        teamId: p.team_id,
+        teamName: p.team_name,
+      },
+      stateSummary,
+      photos: photosResult.rows,
+      auditHistory: auditResult.rows,
+    });
+  } catch (err) {
+    console.error('getProjectDetail error:', err.message);
+    res.status(500).json({ error: 'Failed to load project detail' });
+  }
+}
+

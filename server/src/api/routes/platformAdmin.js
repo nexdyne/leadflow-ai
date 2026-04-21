@@ -4,6 +4,7 @@ import {
   getDashboard, getAnalytics, getRevenue,
   listUsers, getUser, suspendUser, reactivateUser, deleteUser, resetUserPassword,
   listOrganizations, updateOrganization,
+  listProjects, getProjectDetail,
   listAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
   listAuditLogs,
   getActiveAnnouncements, dismissAnnouncement,
@@ -30,6 +31,10 @@ router.delete('/users/:id', deleteUser);
 // ─── Organization Management ────────────────────────────
 router.get('/organizations', listOrganizations);
 router.put('/organizations/:id', updateOrganization);
+
+// ─── Projects / Inspections (admin visibility) ──────────
+router.get('/projects', listProjects);
+router.get('/projects/:id', getProjectDetail);
 
 // ─── Announcements ──────────────────────────────────────
 // IMPORTANT: /active must come before /:id to avoid param capture
