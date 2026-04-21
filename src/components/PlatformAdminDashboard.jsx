@@ -238,6 +238,22 @@ export default function PlatformAdminDashboard({ onLogout }) {
 // ═══════════════════════════════════════════════════════════
 
 function OverviewPanel({ dashboard, onRefresh }) {
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(null);
+  const [period, setPeriod] = useState(30);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    apiCall('GET', `/platform/analytics?period=${period}`)
+      .then(data => { if (!cancelled) setAnalytics(data); })
+      .catch(err => { if (!cancelled) setAnalyticsError(err.message || 'Failed to load analytics'); })
+      .finally(() => { if (!cancelled) setAnalyticsLoading(false); });
+    return () => { cancelled = true; };
+  }, [period]);
+
   if (!dashboard) return <div style={{ color: '#94a3b8' }}>No data available</div>;
 
   const stats = [
@@ -248,6 +264,10 @@ function OverviewPanel({ dashboard, onRefresh }) {
     { label: 'Signups (7d)', value: dashboard.recentSignups, color: '#ec4899', sub: 'Last 7 days' },
     { label: 'Active Today', value: dashboard.activeToday, color: '#06b6d4', sub: 'Logged in today' },
   ];
+
+  const signupSeries = buildDailySeries(analytics && analytics.signupTrend, period);
+  const projectSeries = buildDailySeries(analytics && analytics.projectTrend, period);
+  const roleDist = (analytics && analytics.roleDistribution) || [];
 
   return (
     <div>
@@ -265,6 +285,91 @@ function OverviewPanel({ dashboard, onRefresh }) {
         ))}
       </div>
 
+      {/* Analytics charts */}
+      <div style={{ ...cardStyle, marginTop: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>Trends</h3>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {[7, 30, 90].map(p => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                style={{
+                  padding: '4px 10px',
+                  background: period === p ? '#3b82f6' : 'transparent',
+                  color: period === p ? '#fff' : '#94a3b8',
+                  border: '1px solid ' + (period === p ? '#3b82f6' : '#475569'),
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                }}
+              >
+                {p}d
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {analyticsLoading && <div style={{ color: '#64748b', padding: '20px', textAlign: 'center' }}>Loading analytics...</div>}
+        {analyticsError && <div style={{ color: '#fca5a5', padding: '12px', background: '#7f1d1d', borderRadius: '4px' }}>Failed: {analyticsError}</div>}
+
+        {!analyticsLoading && !analyticsError && analytics && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+            <ChartCard
+              title="User Signups"
+              total={signupSeries.total}
+              subtitle={`${signupSeries.total} in last ${period} days · avg ${signupSeries.avg.toFixed(1)}/day`}
+              color="#3b82f6"
+            >
+              <SparkLine data={signupSeries.counts} color="#3b82f6" height={80} />
+              <SeriesXAxis start={signupSeries.firstDate} end={signupSeries.lastDate} />
+            </ChartCard>
+
+            <ChartCard
+              title="New Projects"
+              total={projectSeries.total}
+              subtitle={`${projectSeries.total} in last ${period} days · avg ${projectSeries.avg.toFixed(1)}/day`}
+              color="#f59e0b"
+            >
+              <SparkLine data={projectSeries.counts} color="#f59e0b" height={80} />
+              <SeriesXAxis start={projectSeries.firstDate} end={projectSeries.lastDate} />
+            </ChartCard>
+
+            <ChartCard
+              title="Role Distribution"
+              total={roleDist.reduce((s, r) => s + parseInt(r.count || 0), 0)}
+              subtitle="All active non-admin users"
+              color="#8b5cf6"
+            >
+              <Donut
+                segments={roleDist.map(r => ({
+                  label: r.role || 'unknown',
+                  value: parseInt(r.count || 0),
+                  color: r.role === 'inspector' ? '#3b82f6' : r.role === 'client' ? '#f59e0b' : '#64748b',
+                }))}
+                size={140}
+              />
+            </ChartCard>
+
+            <ChartCard
+              title="Subscription Plans"
+              total={(dashboard.organizations.free || 0) + (dashboard.organizations.pro || 0) + (dashboard.organizations.enterprise || 0)}
+              subtitle={`${dashboard.organizations.pro + dashboard.organizations.enterprise} paid orgs`}
+              color="#10b981"
+            >
+              <Donut
+                segments={[
+                  { label: 'free', value: dashboard.organizations.free || 0, color: '#64748b' },
+                  { label: 'pro', value: dashboard.organizations.pro || 0, color: '#3b82f6' },
+                  { label: 'enterprise', value: dashboard.organizations.enterprise || 0, color: '#8b5cf6' },
+                ]}
+                size={140}
+              />
+            </ChartCard>
+          </div>
+        )}
+      </div>
+
       {/* Quick status */}
       <div style={{ ...cardStyle, marginTop: '24px' }}>
         <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', marginBottom: '12px' }}>Quick Summary</h3>
@@ -280,6 +385,145 @@ function OverviewPanel({ dashboard, onRefresh }) {
             <div style={{ fontSize: '24px', fontWeight: '700', color: '#f59e0b' }}>{dashboard.users.inactive}</div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CHART HELPERS (pure SVG, no external deps)
+// ═══════════════════════════════════════════════════════════
+
+function buildDailySeries(rows, days) {
+  // Normalize backend rows ({date, count}) into a dense daily array covering `days` days.
+  var map = {};
+  var total = 0;
+  (rows || []).forEach(function (r) {
+    var k = r.date ? new Date(r.date).toISOString().slice(0, 10) : null;
+    if (k) {
+      map[k] = parseInt(r.count || 0);
+      total += parseInt(r.count || 0);
+    }
+  });
+  var counts = [];
+  var end = new Date();
+  end.setUTCHours(0, 0, 0, 0);
+  var start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  for (var i = 0; i < days; i++) {
+    var d = new Date(start);
+    d.setUTCDate(start.getUTCDate() + i);
+    var key = d.toISOString().slice(0, 10);
+    counts.push(map[key] || 0);
+  }
+  return {
+    counts: counts,
+    total: total,
+    avg: counts.length ? total / counts.length : 0,
+    firstDate: start,
+    lastDate: end,
+  };
+}
+
+function ChartCard({ title, total, subtitle, color, children }) {
+  return (
+    <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '14px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
+        <div style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</div>
+        <div style={{ fontSize: '20px', fontWeight: '700', color: color }}>{total}</div>
+      </div>
+      <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '12px' }}>{subtitle}</div>
+      {children}
+    </div>
+  );
+}
+
+function SparkLine({ data, color, height }) {
+  var w = 300;
+  var h = height || 60;
+  if (!data || data.length === 0) {
+    return <div style={{ color: '#64748b', fontSize: '12px', padding: '20px 0', textAlign: 'center' }}>No data</div>;
+  }
+  var maxV = Math.max.apply(null, data.concat([1]));
+  var stepX = data.length > 1 ? w / (data.length - 1) : 0;
+  var points = data.map(function (v, i) {
+    var x = i * stepX;
+    var y = h - (v / maxV) * (h - 4) - 2;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  var areaPts = '0,' + h + ' ' + points + ' ' + w + ',' + h;
+  return (
+    <svg viewBox={'0 0 ' + w + ' ' + h} width="100%" height={h} preserveAspectRatio="none" style={{ display: 'block' }}>
+      <polyline points={areaPts} fill={color} fillOpacity="0.15" stroke="none" />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      {data.map(function (v, i) {
+        if (v === 0) return null;
+        var x = i * stepX;
+        var y = h - (v / maxV) * (h - 4) - 2;
+        return <circle key={i} cx={x} cy={y} r="2" fill={color} />;
+      })}
+    </svg>
+  );
+}
+
+function SeriesXAxis({ start, end }) {
+  var fmt = function (d) { return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); };
+  var mid = new Date((start.getTime() + end.getTime()) / 2);
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+      <span>{fmt(start)}</span>
+      <span>{fmt(mid)}</span>
+      <span>{fmt(end)}</span>
+    </div>
+  );
+}
+
+function Donut({ segments, size }) {
+  var total = segments.reduce(function (s, seg) { return s + (seg.value || 0); }, 0);
+  var sz = size || 120;
+  var r = sz / 2 - 4;
+  var cx = sz / 2;
+  var cy = sz / 2;
+  if (total === 0) {
+    return <div style={{ color: '#64748b', fontSize: '12px', padding: '20px 0', textAlign: 'center' }}>No data</div>;
+  }
+  var angle = -Math.PI / 2; // start at top
+  var paths = [];
+  segments.forEach(function (seg, idx) {
+    if (!seg.value) return;
+    var sweep = (seg.value / total) * Math.PI * 2;
+    var x1 = cx + r * Math.cos(angle);
+    var y1 = cy + r * Math.sin(angle);
+    var x2 = cx + r * Math.cos(angle + sweep);
+    var y2 = cy + r * Math.sin(angle + sweep);
+    var large = sweep > Math.PI ? 1 : 0;
+    var d = 'M ' + cx + ' ' + cy +
+            ' L ' + x1.toFixed(2) + ' ' + y1.toFixed(2) +
+            ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2) +
+            ' Z';
+    paths.push(<path key={idx} d={d} fill={seg.color} />);
+    angle += sweep;
+  });
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <svg width={sz} height={sz} viewBox={'0 0 ' + sz + ' ' + sz} style={{ flexShrink: 0 }}>
+        {paths}
+        <circle cx={cx} cy={cy} r={r * 0.55} fill="#0f172a" />
+        <text x={cx} y={cy - 2} textAnchor="middle" fontSize="16" fontWeight="700" fill="#f1f5f9">{total}</text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize="9" fill="#64748b">TOTAL</text>
+      </svg>
+      <div style={{ flex: 1, fontSize: '11px' }}>
+        {segments.map(function (seg) {
+          var pct = total ? Math.round((seg.value / total) * 100) : 0;
+          return (
+            <div key={seg.label} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+              <span style={{ width: '10px', height: '10px', background: seg.color, borderRadius: '2px', flexShrink: 0 }}></span>
+              <span style={{ color: '#cbd5e1', flex: 1 }}>{seg.label}</span>
+              <span style={{ color: '#f1f5f9', fontWeight: '600' }}>{seg.value}</span>
+              <span style={{ color: '#64748b', minWidth: '32px', textAlign: 'right' }}>{pct}%</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
