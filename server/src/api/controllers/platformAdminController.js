@@ -379,7 +379,7 @@ export async function resetUserPassword(req, res) {
   }
 
   const targetRow = await query(
-    'SELECT id, email, full_name FROM users WHERE id = $1',
+    'SELECT id, email, full_name, is_platform_admin FROM users WHERE id = $1',
     [targetId]
   );
   if (targetRow.rows.length === 0) {
@@ -409,7 +409,7 @@ export async function resetUserPassword(req, res) {
   let emailSent = false;
   if (req.body?.sendEmail !== false) {
     try {
-      const result = await sendAdminPasswordResetEmail(target.email, target.full_name, tempPassword, resetByName);
+      const result = await sendAdminPasswordResetEmail(target.email, target.full_name, tempPassword, resetByName, !!target.is_platform_admin);
       emailSent = !result?.skipped;
     } catch (err) {
       console.error('[resetUserPassword] email send failed:', err.message);

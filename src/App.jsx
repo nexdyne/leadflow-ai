@@ -339,7 +339,9 @@ function AppContent() {
   // /admin and /admin/* URLs route to the dedicated PlatformAdminLoginPage
   // (a visually distinct dark-themed surface — deliberately NOT reusing
   // the inspector LoginPage so there is zero chance an inspector lands
-  // here by accident and thinks it's the regular sign-in).
+  // here by accident and thinks it's the regular sign-in). The backend
+  // also enforces surface="admin" → is_platform_admin=true, so a
+  // non-admin credential cannot produce a valid session from this page.
   const isPlatformAdmin = user?.role === 'platform_admin' || user?.isPlatformAdmin;
   if (platformLoginMode && !isAuthenticated) {
     return (
@@ -351,11 +353,40 @@ function AppContent() {
           window.history.replaceState(null, '', '/login');
           setLoginMode(true);
         }}
+        onForgotPassword={() => setForgotPasswordMode(true)}
       />
     );
   }
   if (isPlatformAdmin && isAuthenticated) {
-    return <PlatformAdminDashboard onLogout={() => setPlatformLoginMode(true)} />;
+    // Defensive: if an admin somehow got authenticated at a non-/admin
+    // URL (shouldn't happen now that the backend 403s that path, but
+    // belt-and-suspenders), align the URL with the actual surface
+    // being rendered so the user isn't confused by /login showing the
+    // admin console.
+    if (!isAdminPath()) {
+      window.history.replaceState(null, '', '/admin');
+    }
+    return <PlatformAdminDashboard onLogout={() => { setPlatformLoginMode(true); window.history.replaceState(null, '', '/admin'); }} />;
+  }
+  // If the user is authenticated but NOT a platform admin while at the
+  // /admin URL, that is the exact "admin URL / inspector UI" crossed-
+  // wire bug. The backend's surface check prevents this from happening
+  // through the normal login flow, but a lingering session from a prior
+  // surface (e.g. tab previously logged in as inspector) could still
+  // land here. Force a logout and show the admin login so there is no
+  // way to see inspector UI at /admin.
+  if (platformLoginMode && isAuthenticated && !isPlatformAdmin) {
+    logout();
+    return (
+      <PlatformAdminLoginPage
+        onInspectorSwitch={() => {
+          setPlatformLoginMode(false);
+          window.history.replaceState(null, '', '/login');
+          setLoginMode(true);
+        }}
+        onForgotPassword={() => setForgotPasswordMode(true)}
+      />
+    );
   }
 
   // ─── Client Portal ──────────────────────────────────────
@@ -370,8 +401,13 @@ function AppContent() {
     if (isClient) {
       return <ClientPortal />;
     }
-    // Inspector accidentally went to /portal — redirect back
-    setPortalMode(false);
+    // Authenticated but NOT a client while the URL says /portal —
+    // bounce them off the portal cleanly. We can't call setPortalMode
+    // here because we're in the render phase; schedule it via a
+    // queueMicrotask so React sees the state update on the next tick
+    // instead of warning about setState-during-render (the previous
+    // implementation called setPortalMode(false) directly in render).
+    queueMicrotask(() => setPortalMode(false));
   }
 
   // ─── Inspector login ────────────────────────────────────

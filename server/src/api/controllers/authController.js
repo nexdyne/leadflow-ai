@@ -138,11 +138,21 @@ export async function register(req, res) {
 }
 
 export async function login(req, res) {
-  const { email, password } = req.body;
+  const { email, password, surface } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required', code: 'VALIDATION_ERROR' });
   }
+
+  // `surface` is a client-side hint indicating which login page the
+  // credentials came from: "admin" (PlatformAdminLoginPage at /admin),
+  // "inspector" (LoginPage at /login), or "client" (LoginPage at /portal).
+  // The server enforces surface/role separation so that an inspector
+  // cannot inadvertently sign into /admin, and a platform admin isn't
+  // silently granted an inspector session from /login. Missing or
+  // unknown values are treated as "inspector" for backwards compat.
+  const validSurfaces = ['admin', 'inspector', 'client'];
+  const loginSurface = validSurfaces.includes(surface) ? surface : 'inspector';
 
   const result = await query(
     `SELECT u.id, u.email, u.password_hash, u.full_name, u.role, u.designation,
@@ -169,6 +179,45 @@ export async function login(req, res) {
 
   if (!valid) {
     return res.status(401).json({ error: 'Invalid email or password', code: 'INVALID_CREDENTIALS' });
+  }
+
+  // ─── Surface / role enforcement ──────────────────────────────
+  // Admin console must reject non-platform-admins. This is the fix for
+  // "we're on the admin platform UI but signing in inspection work UI":
+  // previously the backend happily issued a session to anyone with valid
+  // credentials, and the frontend would then render inspector UI for a
+  // non-admin user who happened to be at /admin.
+  const isPlatformAdmin = !!user.is_platform_admin;
+  if (loginSurface === 'admin' && !isPlatformAdmin) {
+    return res.status(403).json({
+      error: 'This account is not authorized for the platform admin console. Use the inspector or client login instead.',
+      code: 'WRONG_SURFACE_NOT_ADMIN',
+    });
+  }
+  // Symmetric guard: a platform admin signing in through the inspector
+  // or client surface would silently get bumped to PlatformAdminDashboard
+  // by the frontend — which is confusing because the URL stays at /login.
+  // Reject here so the admin knows to go to /admin.
+  if ((loginSurface === 'inspector' || loginSurface === 'client') && isPlatformAdmin) {
+    return res.status(403).json({
+      error: 'Platform admin accounts must sign in at the admin console (/admin).',
+      code: 'WRONG_SURFACE_ADMIN_ELSEWHERE',
+    });
+  }
+  // Surface/role match for inspector↔client:
+  // If a client account tries to sign in at /login (inspector surface),
+  // reject and guide them to /portal. Same in reverse.
+  if (loginSurface === 'inspector' && user.role === 'client') {
+    return res.status(403).json({
+      error: 'This is a client account. Please use the Client Portal to sign in.',
+      code: 'WRONG_SURFACE_CLIENT_AT_INSPECTOR',
+    });
+  }
+  if (loginSurface === 'client' && user.role !== 'client') {
+    return res.status(403).json({
+      error: 'This is an inspector account. Please use the Inspector login to sign in.',
+      code: 'WRONG_SURFACE_INSPECTOR_AT_CLIENT',
+    });
   }
 
   const token = generateAccessToken(user.id, user.email);
@@ -441,14 +490,27 @@ export async function resetPassword(req, res) {
   // Revoke all sessions to force re-login with new password
   await query('UPDATE sessions SET is_revoked = true WHERE user_id = $1', [userId]);
 
-  // Get user email for the confirmation
-  const userResult = await query('SELECT email, full_name FROM users WHERE id = $1', [userId]);
+  // Get user email + role for the confirmation email AND so the frontend
+  // can route the user back to the correct login surface (admin vs
+  // inspector vs client) after a successful reset.
+  const userResult = await query(
+    'SELECT email, full_name, role, is_platform_admin FROM users WHERE id = $1',
+    [userId]
+  );
+  let surface = 'inspector';
   if (userResult.rows[0]) {
-    sendPasswordResetConfirmEmail(userResult.rows[0].email, userResult.rows[0].full_name)
+    const u = userResult.rows[0];
+    if (u.is_platform_admin) surface = 'admin';
+    else if (u.role === 'client') surface = 'client';
+    sendPasswordResetConfirmEmail(u.email, u.full_name)
       .catch(err => console.error('Password reset confirm email failed:', err.message));
   }
 
-  res.json({ success: true, message: 'Password has been reset. Please log in with your new password.' });
+  res.json({
+    success: true,
+    surface,
+    message: 'Password has been reset. Please log in with your new password.',
+  });
 }
 
 // ═══════════════════════════════════════════════════════════

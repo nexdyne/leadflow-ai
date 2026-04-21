@@ -67,7 +67,13 @@ export default function LoginPage({
         const desig = (!isClientPortal && designation) ? designation : undefined;
         await register(email, password, fullName, companyName, role, desig);
       } else {
-        await login(email, password);
+        // Pass the audience of THIS login surface so the backend can
+        // enforce role/surface separation. "client" for Client Portal
+        // sign-in, "inspector" for everyone else on this page. The
+        // admin surface has its own dedicated component and never
+        // reaches this handler.
+        const surface = isClientPortal ? 'client' : 'inspector';
+        await login(email, password, surface);
       }
     } catch (err) {
       setError(err.message);

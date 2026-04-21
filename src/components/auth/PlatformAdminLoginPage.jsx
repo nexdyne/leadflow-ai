@@ -10,21 +10,24 @@ import { useAuth } from '../../hooks/useAuth.jsx';
  *   - No Sign In / Create Account tab toggle (admins are provisioned
  *     via the database migration + bootstrap helper — there is no
  *     self-serve registration path).
- *   - No "Forgot password" link (platform admins recover via direct
- *     DB access / bootstrap env var, not email).
+ *   - Calls login() with surface="admin" so the backend rejects any
+ *     non-platform-admin credential with a clear 403/WRONG_SURFACE
+ *     message. This is the production fix for the class of bugs where
+ *     an inspector could sign in at /admin and silently land on the
+ *     inspector dashboard.
+ *   - Includes a "Forgot password" link that uses the same
+ *     /auth/forgot-password flow as inspectors. The one-time
+ *     BOOTSTRAP_PLATFORM_ADMIN env-var recovery is a disaster fallback,
+ *     not a day-to-day reset — day-to-day admins recover by email like
+ *     any other user.
  *   - No portal / inspector switch links in the main surface. A small
  *     muted "Inspector login" link lives at the very bottom for the
  *     unlikely case an inspector bookmarks /admin by mistake.
  *   - Clear "Authorized personnel only" warning so inspectors who
  *     stumble onto this URL immediately know they are in the wrong
  *     place.
- *
- * This is a production-level separation: the inspector and admin
- * surfaces must be visually distinct so that inspectors never confuse
- * one for the other. Inspector /login remains the public face; /admin
- * is a back-office entry point.
  */
-export default function PlatformAdminLoginPage({ onInspectorSwitch }) {
+export default function PlatformAdminLoginPage({ onInspectorSwitch, onForgotPassword }) {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,9 +39,19 @@ export default function PlatformAdminLoginPage({ onInspectorSwitch }) {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      // surface="admin" tells the backend to enforce is_platform_admin=true.
+      // Non-admin credentials get a 403 WRONG_SURFACE_NOT_ADMIN response
+      // with a user-readable message we surface below.
+      await login(email, password, 'admin');
     } catch (err) {
-      setError(err.message || 'Sign-in failed');
+      // Surface role-rejection errors with a clearer heading so the
+      // person reading them understands it's not a typo — it's that
+      // their account isn't authorized for the admin console.
+      if (err?.code === 'WRONG_SURFACE_NOT_ADMIN') {
+        setError(err.message || 'This account is not authorized for the platform admin console.');
+      } else {
+        setError(err.message || 'Sign-in failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -107,6 +120,25 @@ export default function PlatformAdminLoginPage({ onInspectorSwitch }) {
           >
             {loading ? 'Authenticating…' : 'Sign in to admin console'}
           </button>
+
+          {/* Forgot-password link — goes through the same
+              /auth/forgot-password flow as inspectors and clients. The
+              reset link emailed to a platform admin lands on the reset
+              page, then the backend returns surface="admin" on success
+              so the UI knows to redirect back here. */}
+          {onForgotPassword && (
+            <div style={styles.forgotRow}>
+              <button
+                type="button"
+                onClick={onForgotPassword}
+                style={styles.forgotBtn}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#c4b5fd'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = '#8b5cf6'; }}
+              >
+                Forgot admin password?
+              </button>
+            </div>
+          )}
         </form>
 
         <div style={styles.metaRow}>
@@ -266,6 +298,24 @@ const styles = {
     fontSize: '12px',
     cursor: 'pointer',
     padding: '8px 12px',
+    transition: 'color 0.2s',
+    fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  },
+  forgotRow: {
+    marginTop: '14px',
+    textAlign: 'center',
+  },
+  forgotBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: '#8b5cf6',
+    fontSize: '12px',
+    fontWeight: 600,
+    letterSpacing: '0.3px',
+    cursor: 'pointer',
+    padding: '4px 8px',
+    textDecoration: 'underline',
+    textUnderlineOffset: '3px',
     transition: 'color 0.2s',
     fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   },

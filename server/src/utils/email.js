@@ -25,8 +25,12 @@ export async function shouldSendEmail(userId, category) {
   }
 }
 
-const FROM_EMAIL = process.env.FROM_EMAIL || 'LeadFlow AI <noreply@leadflow.dev>';
-const APP_URL = process.env.APP_URL || 'https://leadflow-ai-production-11f3.up.railway.app';
+// Production defaults point at the real abatecomply.com zone so that
+// if a Railway env var is accidentally missing, emails still go out
+// from the correct sender domain and link back to the public site
+// (not the Railway staging host, which DKIM/SPF won't authorize).
+const FROM_EMAIL = process.env.FROM_EMAIL || 'LeadFlow AI <noreply@abatecomply.com>';
+const APP_URL = process.env.APP_URL || 'https://abatecomply.com';
 const APP_NAME = 'LeadFlow AI';
 
 // ─── Helper: log email to DB ────────────────────────────
@@ -456,8 +460,12 @@ export async function sendAccountSuspendedEmail(to, fullName, reason) {
 //  14. ACCOUNT REACTIVATED
 // ═══════════════════════════════════════════════════════════
 
-export async function sendAccountReactivatedEmail(to, fullName) {
+export async function sendAccountReactivatedEmail(to, fullName, isPlatformAdmin = false) {
   const subject = 'Your LeadFlow AI account has been reactivated';
+  // Route platform admins back to /admin, everyone else to /login. The
+  // audience-appropriate surface is the one they already use, so the
+  // reactivation button should land them exactly there.
+  const signInPath = isPlatformAdmin ? '/admin' : '/login';
   const html = emailLayout(subject, `
     <h2 style="margin:0 0 12px; color:#059669; font-size:20px;">Welcome Back!</h2>
     <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
@@ -468,7 +476,7 @@ export async function sendAccountReactivatedEmail(to, fullName) {
         Your account is fully restored with all your previous data intact.
       </div>
     </div>
-    ${buttonHtml('Sign In', `${APP_URL}/login`, '#059669')}
+    ${buttonHtml('Sign In', `${APP_URL}${signInPath}`, '#059669')}
   `);
 
   return sendEmail(to, subject, html, 'account_reactivated');
@@ -1041,8 +1049,13 @@ export async function sendSupportTicketAck(to, name, ticketId, subject) {
 //  ADMIN-TRIGGERED TEMPORARY PASSWORD
 // ═══════════════════════════════════════════════════════════
 
-export async function sendAdminPasswordResetEmail(to, fullName, tempPassword, resetBy) {
+export async function sendAdminPasswordResetEmail(to, fullName, tempPassword, resetBy, isPlatformAdmin = false) {
   const subject = 'Your LeadFlow AI password has been reset';
+  // Platform admins sign in at /admin, not /login. Route the email
+  // button to the surface the recipient actually uses so they don't
+  // end up bouncing off the 403 WRONG_SURFACE_ADMIN_ELSEWHERE check.
+  const signInPath = isPlatformAdmin ? '/admin' : '/login';
+  const signInLabel = isPlatformAdmin ? 'Sign in to Admin Console' : 'Sign In';
   const html = emailLayout(subject, `
     <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">Password Reset by Administrator</h2>
     <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
@@ -1057,7 +1070,7 @@ export async function sendAdminPasswordResetEmail(to, fullName, tempPassword, re
         You will be required to change this password when you log in.
       </p>
     </div>
-    ${buttonHtml('Sign In', `${APP_URL}/login`, '#2563eb')}
+    ${buttonHtml(signInLabel, `${APP_URL}${signInPath}`, '#2563eb')}
     <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #dc2626;">
       <p style="color:#7f1d1d; font-size:13px; line-height:1.6; margin:0;">
         <strong>Didn't request this?</strong> Contact your administrator or reply to <a href="mailto:support@abatecomply.com" style="color:#dc2626;">support@abatecomply.com</a> immediately.
