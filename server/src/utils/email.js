@@ -34,6 +34,20 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'LeadFlow AI <noreply@abatecomply.c
 const APP_URL = process.env.APP_URL || 'https://abatecomply.com';
 const APP_NAME = 'LeadFlow AI';
 
+// C47: HTML-escape any user-supplied string before interpolating into an
+// email template. Defense in depth — Resend sanitizes some payloads, but
+// templates must never rely on that. Handles null/undefined by returning
+// an empty string so `${escapeHtml(undefined)}` does not render "undefined".
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ─── Helper: log email to DB ────────────────────────────
 async function logEmail(toEmail, template, subject, resendId, status = 'sent', error = null) {
   try {
@@ -680,28 +694,38 @@ export async function sendClientShareInviteEmail(
   personalMessage,
   inviteUrl,
 ) {
+  // C47: escape ALL user-supplied values before HTML interpolation. The
+  // subject line is plain-text so it does not need escaping (Resend sets
+  // it as a header), but every DOM field below is HTML.
+  const safeInspector = escapeHtml(inspectorName || 'Your inspector');
+  const safeCompany = escapeHtml(inspectorCompany);
+  const safeProject = escapeHtml(projectName);
+  const safeAddress = escapeHtml(projectAddress);
+  const safeInvitee = escapeHtml(inviteeName);
+  const safePersonal = escapeHtml(personalMessage && personalMessage.trim());
+
   const subject = `${inspectorName || 'Your inspector'} invited you to view ${projectName}`;
-  const greeting = inviteeName ? `Hi ${inviteeName},` : 'Hi there,';
-  const companyLine = inspectorCompany
-    ? ` of <strong>${inspectorCompany}</strong>`
+  const greeting = safeInvitee ? `Hi ${safeInvitee},` : 'Hi there,';
+  const companyLine = safeCompany
+    ? ` of <strong>${safeCompany}</strong>`
     : '';
-  const addrLine = projectAddress
-    ? `<div style="color:#64748b; font-size:13px; margin-top:4px;">${projectAddress}</div>`
+  const addrLine = safeAddress
+    ? `<div style="color:#64748b; font-size:13px; margin-top:4px;">${safeAddress}</div>`
     : '';
-  const personalBlock = personalMessage && personalMessage.trim()
+  const personalBlock = safePersonal
     ? `<div style="background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #ea580c;">
-         <div style="color:#9a3412; font-size:13px; font-weight:600; margin-bottom:6px;">Message from ${inspectorName || 'your inspector'}</div>
-         <div style="color:#7c2d12; font-size:14px; line-height:1.6; white-space:pre-wrap;">${personalMessage.trim()}</div>
+         <div style="color:#9a3412; font-size:13px; font-weight:600; margin-bottom:6px;">Message from ${safeInspector}</div>
+         <div style="color:#7c2d12; font-size:14px; line-height:1.6; white-space:pre-wrap;">${safePersonal}</div>
        </div>`
     : '';
   const html = emailLayout(subject, `
     <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">You've been invited to your inspection project</h2>
     <p style="color:#475569; line-height:1.6; margin:0 0 12px;">
-      ${greeting} <strong>${inspectorName || 'Your inspector'}</strong>${companyLine}
+      ${greeting} <strong>${safeInspector}</strong>${companyLine}
       has invited you to follow along with your inspection in the ${APP_NAME} Client Portal.
     </p>
     <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #2563eb;">
-      <div style="color:#1e40af; font-size:14px; font-weight:600;">${projectName}</div>
+      <div style="color:#1e40af; font-size:14px; font-weight:600;">${safeProject}</div>
       ${addrLine}
     </div>
     ${personalBlock}

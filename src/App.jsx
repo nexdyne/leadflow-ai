@@ -132,6 +132,15 @@ function AppContent() {
   const [showSaveToast, setShowSaveToast] = React.useState(false);
   const saveToastTimer = React.useRef(null);
   const isMetaUpdateRef = React.useRef(false);
+  // C47: synchronous guard against double-click race. setSaveStatus is
+  // async re-render; a fast double-click can fire a second handler before
+  // the disabled attribute takes effect, producing two POSTs and a
+  // duplicate cloud row. A ref is set synchronously and beats the race.
+  const savingRef = React.useRef(false);
+  // C47: track cloud-sync time separately from _lastSaved (which is local-
+  // only). The indicator shows both so inspectors know whether their work
+  // has reached the server, not just the browser.
+  const [lastCloudSavedAt, setLastCloudSavedAt] = React.useState(null);
 
   // Check URL on mount
   useEffect(() => {
@@ -250,6 +259,12 @@ function AppContent() {
   // the UI's "Saved" indicator; cloud save failure is surfaced separately
   // without discarding local progress.
   const handleManualSave = async () => {
+    // C47: synchronous re-entry guard — stops double-click races before
+    // React has a chance to propagate `disabled={saveStatus === 'saving'}`
+    // to the buttons. Without this, two rapid clicks each POST a new
+    // project, producing duplicate rows in My Projects.
+    if (savingRef.current) return;
+
     if (!state._inspectionId) {
       const newId = 'insp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
       dispatch({ type: 'SET_INSPECTION_META', payload: {
@@ -260,45 +275,55 @@ function AppContent() {
       return;
     }
 
-    setSaveStatus('saving');
-    isMetaUpdateRef.current = true;
-
-    // 1) Local IndexedDB save — never blocks on network.
-    let localOk = false;
+    savingRef.current = true;
     try {
-      await saveInspection(state._inspectionId, state);
-      localOk = true;
-      dispatch({ type: 'SET_INSPECTION_META', payload: { _lastSaved: new Date().toISOString() }});
-    } catch (err) {
-      console.error('Local manual save failed:', err);
-      setSaveStatus('error');
-      return;
-    }
+      setSaveStatus('saving');
+      isMetaUpdateRef.current = true;
 
-    // 2) Cloud save — only attempted when the user is signed in. Offline /
-    //    unauth states fall back to "saved locally" so work is never lost.
-    if (isAuthenticated) {
+      // 1) Local IndexedDB save — never blocks on network.
+      let localOk = false;
       try {
-        const pi = state.projectInfo || {};
-        const cloudName = (pi.projectName && pi.projectName.trim())
-          || (pi.propertyAddress && pi.propertyAddress.trim())
-          || 'Untitled Project';
-        const teamId = (currentTeam && currentTeam.id) ? currentTeam.id : null;
-        await saveProject(cloudName, state, true, teamId);
+        await saveInspection(state._inspectionId, state);
+        localOk = true;
+        dispatch({ type: 'SET_INSPECTION_META', payload: { _lastSaved: new Date().toISOString() }});
       } catch (err) {
-        console.error('Cloud save failed (local save succeeded):', err);
-        // Local save is complete — indicate partial success to the user.
+        console.error('Local manual save failed:', err);
         setSaveStatus('error');
-        setShowSaveToast(false);
         return;
       }
-    }
 
-    if (localOk) {
-      setSaveStatus('saved');
-      setShowSaveToast(true);
-      if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
-      saveToastTimer.current = setTimeout(() => setShowSaveToast(false), 3000);
+      // 2) Cloud save — only attempted when the user is signed in. Offline
+      //    / unauth states fall back to "saved locally" so work is never
+      //    lost. C47: record the cloud-save time separately so the UI
+      //    indicator can say "Saved locally at X · Cloud-synced at Y".
+      if (isAuthenticated) {
+        try {
+          const pi = state.projectInfo || {};
+          const cloudName = (pi.projectName && pi.projectName.trim())
+            || (pi.propertyAddress && pi.propertyAddress.trim())
+            || 'Untitled Project';
+          const teamId = (currentTeam && currentTeam.id) ? currentTeam.id : null;
+          await saveProject(cloudName, state, true, teamId);
+          setLastCloudSavedAt(new Date().toISOString());
+        } catch (err) {
+          console.error('Cloud save failed (local save succeeded):', err);
+          // Local save is complete — indicate partial success to the user.
+          setSaveStatus('error');
+          setShowSaveToast(false);
+          return;
+        }
+      }
+
+      if (localOk) {
+        setSaveStatus('saved');
+        setShowSaveToast(true);
+        if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
+        saveToastTimer.current = setTimeout(() => setShowSaveToast(false), 3000);
+      }
+    } finally {
+      // Always release the guard — even on thrown errors — or the button
+      // stays dead for the rest of the session.
+      savingRef.current = false;
     }
   };
 
@@ -317,6 +342,8 @@ function AppContent() {
               || 'Untitled Project';
             const teamId = (currentTeam && currentTeam.id) ? currentTeam.id : null;
             await saveProject(cloudName, state, true, teamId);
+            // C47: record cloud-sync time for the status indicator.
+            setLastCloudSavedAt(new Date().toISOString());
           } catch (err) {
             console.error('Cloud save on dashboard exit failed:', err);
           }
@@ -835,21 +862,41 @@ function AppContent() {
                       {saveStatus === 'saving' ? 'Saving...' : 'Save Progress'}
                     </button>
                   )}
+                  {/* C47: two-line status so inspectors can tell local-only
+                      auto-saves from full cloud syncs. Before this, the
+                      line read "Last saved: 10:42 AM" whether the work
+                      had reached the cloud or not. */}
                   <span className="text-sm text-gray-500">
-                    {saveStatus === 'saved' && state._lastSaved && ('Last saved: ' + new Date(state._lastSaved).toLocaleTimeString())}
+                    {saveStatus === 'saved' && state._lastSaved && (
+                      <span className="inline-flex flex-col">
+                        <span>{'Saved locally: ' + new Date(state._lastSaved).toLocaleTimeString()}</span>
+                        <span className={lastCloudSavedAt ? 'text-green-700' : 'text-yellow-700'}>
+                          {lastCloudSavedAt
+                            ? 'Cloud-synced: ' + new Date(lastCloudSavedAt).toLocaleTimeString()
+                            : 'Not yet cloud-synced — click Save Progress'}
+                        </span>
+                      </span>
+                    )}
+                    {saveStatus === 'saving' && 'Saving…'}
                     {saveStatus === 'error' && <span className="text-red-600 font-medium">Save failed — try again</span>}
                     {saveStatus === 'unsaved' && 'Not yet saved'}
                   </span>
                 </div>
                 <div className="flex gap-3">
+                  {/* C47: viewers don't have write access, so the
+                      save-and-nav buttons become plain nav buttons. They
+                      can still move through tabs using the tab bar at
+                      the top or these labels, but no save is attempted. */}
                   {activeTab > 0 && (
                     <button
                       onClick={async () => {
-                        // C46: await the save so the project is actually
-                        // persisted (local + cloud) before tab nav. The
-                        // old fire-and-forget flow let users switch tabs
-                        // while the project was still an unsaved draft.
-                        try { await handleManualSave(); } catch (_) { /* surfaced via saveStatus */ }
+                        if (currentTeam?.role !== 'viewer') {
+                          // C46: await the save so the project is actually
+                          // persisted (local + cloud) before tab nav. The
+                          // old fire-and-forget flow let users switch tabs
+                          // while the project was still an unsaved draft.
+                          try { await handleManualSave(); } catch (_) { /* surfaced via saveStatus */ }
+                        }
                         setActiveTab(activeTab - 1);
                       }}
                       disabled={saveStatus === 'saving'}
@@ -865,8 +912,10 @@ function AppContent() {
                   {activeTab < tabs.length - 1 && (
                     <button
                       onClick={async () => {
-                        // C46: await save before advancing. See above.
-                        try { await handleManualSave(); } catch (_) { /* surfaced via saveStatus */ }
+                        if (currentTeam?.role !== 'viewer') {
+                          // C46: await save before advancing. See above.
+                          try { await handleManualSave(); } catch (_) { /* surfaced via saveStatus */ }
+                        }
                         setActiveTab(activeTab + 1);
                       }}
                       disabled={saveStatus === 'saving'}
@@ -876,7 +925,11 @@ function AppContent() {
                           : 'bg-blue-600 hover:bg-blue-700'
                       }`}
                     >
-                      {saveStatus === 'saving' ? 'Saving…' : 'Save \u0026 Next Tab \u2192'}
+                      {saveStatus === 'saving'
+                        ? 'Saving\u2026'
+                        : (currentTeam?.role === 'viewer'
+                            ? 'Next Tab \u2192'
+                            : 'Save \u0026 Next Tab \u2192')}
                     </button>
                   )}
                 </div>
