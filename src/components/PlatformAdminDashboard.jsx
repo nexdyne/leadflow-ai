@@ -8,6 +8,7 @@ const TABS = [
   { key: 'organizations', label: 'Organizations', icon: '🏢' },
   { key: 'revenue', label: 'Revenue', icon: '💰' },
   { key: 'announcements', label: 'Announcements', icon: '📢' },
+  { key: 'support', label: 'Support', icon: '💬' },
   { key: 'audit', label: 'Audit Logs', icon: '📋' },
 ];
 
@@ -129,6 +130,7 @@ export default function PlatformAdminDashboard({ onLogout }) {
             {activeTab === 'organizations' && <OrganizationsPanel />}
             {activeTab === 'revenue' && <RevenuePanel />}
             {activeTab === 'announcements' && <AnnouncementsPanel />}
+            {activeTab === 'support' && <SupportPanel />}
             {activeTab === 'audit' && <AuditPanel />}
           </>
         )}
@@ -1282,6 +1284,304 @@ function CreateAnnouncementModal({ onSave, onCancel }) {
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
           <button onClick={onCancel} style={actionBtnStyle('#475569')}>Cancel</button>
           <button onClick={() => onSave(form)} disabled={!form.title || !form.body} style={actionBtnStyle('#7c3aed')}>Publish</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  SUPPORT PANEL (C35)
+// ═══════════════════════════════════════════════════════════
+
+const STATUS_COLORS = {
+  new:      '#ef4444',
+  open:     '#f59e0b',
+  waiting:  '#8b5cf6',
+  resolved: '#10b981',
+  closed:   '#64748b',
+};
+const PRIORITY_COLORS = {
+  urgent: '#dc2626',
+  high:   '#f97316',
+  normal: '#3b82f6',
+  low:    '#64748b',
+};
+
+function SupportPanel() {
+  const [tickets, setTickets] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState({ new: 0, open: 0, waiting: 0, resolved: 0, closed: 0 });
+  const [page, setPage] = useState(1);
+  const [status, setStatus] = useState('');
+  const [priority, setPriority] = useState('');
+  const [category, setCategory] = useState('');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page, limit: 25 });
+      if (status)   params.set('status', status);
+      if (priority) params.set('priority', priority);
+      if (category) params.set('category', category);
+      if (search)   params.set('search', search);
+      const data = await apiCall('GET', `/platform/support-tickets?${params}`);
+      setTickets(data.tickets);
+      setTotal(data.total);
+      setSummary(data.summary || summary);
+    } catch (err) {
+      console.error('Failed to load support tickets:', err);
+    } finally {
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, status, priority, category, search]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleUpdate = async (id, patch) => {
+    try {
+      await apiCall('PATCH', `/platform/support-tickets/${id}`, patch);
+      load();
+      if (selected && selected.id === id) {
+        setSelected(s => ({ ...s, ...patch }));
+      }
+    } catch (err) {
+      alert('Failed to update ticket: ' + err.message);
+    }
+  };
+
+  const tabs = [
+    { key: '',         label: 'All',      n: total },
+    { key: 'new',      label: 'New',      n: summary.new },
+    { key: 'open',     label: 'Open',     n: summary.open },
+    { key: 'waiting',  label: 'Waiting',  n: summary.waiting },
+    { key: 'resolved', label: 'Resolved', n: summary.resolved },
+    { key: 'closed',   label: 'Closed',   n: summary.closed },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', margin: 0 }}>Support Tickets</h2>
+        <button onClick={load} style={refreshBtnStyle}>Refresh</button>
+      </div>
+
+      {/* Status tabs */}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        {tabs.map(t => (
+          <button
+            key={t.key || 'all'}
+            onClick={() => { setStatus(t.key); setPage(1); }}
+            style={{
+              padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+              fontSize: '13px', fontWeight: '500',
+              background: status === t.key ? '#7c3aed' : '#1e293b',
+              color: status === t.key ? '#fff' : '#cbd5e1',
+              display: 'inline-flex', alignItems: 'center', gap: '8px',
+            }}
+          >
+            {t.label}
+            <span style={{
+              padding: '1px 7px', borderRadius: '99px', fontSize: '11px', fontWeight: '700',
+              background: status === t.key ? 'rgba(255,255,255,0.2)' : '#334155',
+              color: '#f1f5f9',
+            }}>{t.n}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <input
+          placeholder="Search subject, message, email, name…"
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          style={{ ...inputDarkStyle, flex: 1, minWidth: '220px' }}
+        />
+        <select value={priority} onChange={e => { setPriority(e.target.value); setPage(1); }}
+          style={{ ...inputDarkStyle, width: '160px' }}>
+          <option value="">All priorities</option>
+          <option value="urgent">Urgent</option>
+          <option value="high">High</option>
+          <option value="normal">Normal</option>
+          <option value="low">Low</option>
+        </select>
+        <select value={category} onChange={e => { setCategory(e.target.value); setPage(1); }}
+          style={{ ...inputDarkStyle, width: '180px' }}>
+          <option value="">All categories</option>
+          <option value="general">General</option>
+          <option value="bug">Bug</option>
+          <option value="billing">Billing</option>
+          <option value="feature">Feature request</option>
+          <option value="onboarding">Onboarding</option>
+          <option value="account">Account</option>
+        </select>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: 'auto', background: '#1e293b', borderRadius: '12px', border: '1px solid #334155' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #334155' }}>
+              {['Status', 'Priority', 'Subject', 'From', 'Category', 'Received', ''].map(h => (
+                <th key={h} style={{ padding: '12px', textAlign: 'left', fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: '600' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading tickets…</td></tr>
+            ) : tickets.length === 0 ? (
+              <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>No tickets match these filters.</td></tr>
+            ) : tickets.map(t => (
+              <tr key={t.id} style={{ borderBottom: '1px solid #0f172a', cursor: 'pointer' }}
+                  onClick={() => setSelected(t)}
+                  onMouseEnter={e => e.currentTarget.style.background = '#273449'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <td style={cellStyle}><span style={badgeStyle(STATUS_COLORS[t.status] || '#64748b')}>{t.status}</span></td>
+                <td style={cellStyle}><span style={badgeStyle(PRIORITY_COLORS[t.priority] || '#64748b')}>{t.priority}</span></td>
+                <td style={{ ...cellStyle, fontWeight: '500', color: '#f1f5f9', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  #{t.id} · {t.subject}
+                </td>
+                <td style={cellStyle}>
+                  <div style={{ color: '#f1f5f9' }}>{t.name || '—'}</div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8' }}>{t.email}</div>
+                </td>
+                <td style={cellStyle}>{t.category}</td>
+                <td style={cellStyle}>{new Date(t.createdAt).toLocaleString()}</td>
+                <td style={cellStyle}>
+                  <button onClick={(e) => { e.stopPropagation(); setSelected(t); }} style={actionBtnStyle('#7c3aed')}>Open</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {Math.ceil(total / 25) > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '16px' }}>
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={pageBtnStyle}>Previous</button>
+          <span style={{ color: '#94a3b8', fontSize: '14px', padding: '8px' }}>Page {page} of {Math.ceil(total / 25)}</span>
+          <button disabled={page >= Math.ceil(total / 25)} onClick={() => setPage(p => p + 1)} style={pageBtnStyle}>Next</button>
+        </div>
+      )}
+
+      {selected && (
+        <SupportTicketModal
+          ticket={selected}
+          onClose={() => setSelected(null)}
+          onUpdate={(patch) => handleUpdate(selected.id, patch)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SupportTicketModal({ ticket, onClose, onUpdate }) {
+  const [notes, setNotes] = useState(ticket.adminNotes || '');
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      await onUpdate({ adminNotes: notes });
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          ...modalStyle, maxWidth: '720px', maxHeight: '90vh', overflow: 'auto',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+          <div>
+            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '4px' }}>Ticket #{ticket.id} · {ticket.category}</div>
+            <h3 style={{ color: '#f1f5f9', margin: 0, fontSize: '20px', fontWeight: '700' }}>{ticket.subject}</h3>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '22px', cursor: 'pointer' }}>×</button>
+        </div>
+
+        {/* Submitter */}
+        <div style={{ padding: '14px', background: '#0f172a', borderRadius: '8px', marginBottom: '16px', fontSize: '13px', color: '#cbd5e1', lineHeight: 1.7 }}>
+          <div><strong style={{ color: '#f1f5f9' }}>{ticket.name || '(no name provided)'}</strong></div>
+          <div>✉ {ticket.email}</div>
+          {ticket.phone && <div>☎ {ticket.phone}</div>}
+          {ticket.company && <div>🏢 {ticket.company}</div>}
+          {ticket.pageUrl && <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px', wordBreak: 'break-all' }}>From: {ticket.pageUrl}</div>}
+          <div style={{ color: '#64748b', fontSize: '11px', marginTop: '4px' }}>
+            Received {new Date(ticket.createdAt).toLocaleString()}
+            {ticket.ipAddress ? ` · ${ticket.ipAddress}` : ''}
+          </div>
+        </div>
+
+        {/* Message */}
+        <div style={{ padding: '16px', background: '#0f172a', borderRadius: '8px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>Message</div>
+          <div style={{ color: '#e2e8f0', fontSize: '14px', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+            {ticket.message}
+          </div>
+        </div>
+
+        {/* Triage controls */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+          <div>
+            <label style={labelDarkStyle}>Status</label>
+            <select value={ticket.status} onChange={e => onUpdate({ status: e.target.value })} style={inputDarkStyle}>
+              <option value="new">New</option>
+              <option value="open">Open</option>
+              <option value="waiting">Waiting on user</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelDarkStyle}>Priority</label>
+            <select value={ticket.priority} onChange={e => onUpdate({ priority: e.target.value })} style={inputDarkStyle}>
+              <option value="urgent">Urgent</option>
+              <option value="high">High</option>
+              <option value="normal">Normal</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Admin notes */}
+        <div>
+          <label style={labelDarkStyle}>Internal notes (not visible to user)</label>
+          <textarea
+            value={notes} onChange={e => setNotes(e.target.value)}
+            rows={4}
+            placeholder="Add triage notes, follow-up needed, related ticket IDs…"
+            style={{ ...inputDarkStyle, resize: 'vertical', minHeight: '100px', fontFamily: 'inherit' }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px', gap: '8px' }}>
+            <button onClick={() => { setNotes(ticket.adminNotes || ''); }} style={actionBtnStyle('#475569')}>Reset</button>
+            <button onClick={saveNotes} disabled={savingNotes} style={actionBtnStyle('#7c3aed')}>
+              {savingNotes ? 'Saving…' : 'Save notes'}
+            </button>
+          </div>
+        </div>
+
+        {/* Quick actions */}
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #334155' }}>
+          <a href={`mailto:${ticket.email}?subject=Re: ${encodeURIComponent(ticket.subject)}%20(Ticket%20%23${ticket.id})`}
+             style={{
+               padding: '8px 14px', background: '#10b981', color: '#fff',
+               borderRadius: '6px', textDecoration: 'none', fontSize: '13px', fontWeight: '500',
+             }}>
+            Reply by email
+          </a>
+          <button onClick={onClose} style={actionBtnStyle('#475569')}>Close</button>
         </div>
       </div>
     </div>

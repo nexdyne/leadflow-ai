@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// âââ Constants ââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Constants ────────────────────────────────────────────────
 const COLORS = {
   navy: '#0a1628',
   navyLight: '#162440',
@@ -29,7 +29,7 @@ const COLORS = {
 
 const APP_URL = window.location.origin;
 
-// âââ Navigation âââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Navigation ───────────────────────────────────────────────
 function Navbar({ scrolled }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -39,6 +39,7 @@ function Navbar({ scrolled }) {
     { label: 'Lead Map', href: '#map' },
     { label: 'Resources', href: '#resources' },
     { label: 'Company', href: '#company' },
+    { label: 'Support', href: '#support' },
   ];
 
   return (
@@ -84,7 +85,7 @@ function Navbar({ scrolled }) {
   );
 }
 
-// âââ Hero Section âââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Hero Section ─────────────────────────────────────────────
 function HeroSection() {
   return (
     <section style={{
@@ -118,7 +119,7 @@ function HeroSection() {
           </h1>
 
           <p style={{ fontSize: 20, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, margin: '0 0 40px', maxWidth: 520 }}>
-            The all-in-one lead inspection platform for Michigan inspectors. AI-powered reports, XRF data management, real-time compliance tracking, and client portals â built for the professionals who keep families safe.
+            The all-in-one lead inspection platform for Michigan inspectors. AI-powered reports, XRF data management, real-time compliance tracking, and client portals — built for the professionals who keep families safe.
           </p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
@@ -130,7 +131,7 @@ function HeroSection() {
               onMouseEnter={e => { e.target.style.background = COLORS.orangeHover; e.target.style.boxShadow = '0 8px 36px rgba(232,101,10,0.55)'; e.target.style.transform = 'translateY(-2px)'; }}
               onMouseLeave={e => { e.target.style.background = COLORS.orange; e.target.style.boxShadow = '0 4px 24px rgba(232,101,10,0.4)'; e.target.style.transform = 'translateY(0)'; }}
             >
-              Start for free â
+              Start for free →
             </a>
             <a href="#platform" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10,
@@ -147,9 +148,9 @@ function HeroSection() {
           {/* Trust badges */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginTop: 48 }}>
             {[
-              { icon: 'ðï¸', text: 'Michigan EGLE Aligned' },
-              { icon: 'ð', text: 'SOC 2 Ready' },
-              { icon: 'â¡', text: 'AI-Powered Reports' },
+              { icon: '🏛️', text: 'Michigan EGLE Aligned' },
+              { icon: '🔒', text: 'SOC 2 Ready' },
+              { icon: '⚡', text: 'AI-Powered Reports' },
             ].map(b => (
               <div key={b.text} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 18 }}>{b.icon}</span>
@@ -159,7 +160,7 @@ function HeroSection() {
           </div>
         </div>
 
-        {/* Hero visual â App mockup */}
+        {/* Hero visual — App mockup */}
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center', position: 'relative' }}>
           <div style={{
             width: 520, height: 380, borderRadius: 16, overflow: 'hidden',
@@ -191,7 +192,7 @@ function HeroSection() {
                 ))}
               </div>
               {/* Mock project rows */}
-              {['123 Main St â XRF Complete', '456 Oak Ave â Pending Lab', '789 Pine St â Report Ready'].map((t, i) => (
+              {['123 Main St — XRF Complete', '456 Oak Ave — Pending Lab', '789 Pine St — Report Ready'].map((t, i) => (
                 <div key={t} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', marginBottom: 6,
                   background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)',
@@ -212,7 +213,7 @@ function HeroSection() {
   );
 }
 
-// âââ Stats Bar ââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Stats Bar ────────────────────────────────────────────────
 function StatsBar() {
   const stats = [
     { value: '2,400+', label: 'Inspections completed' },
@@ -238,7 +239,7 @@ function StatsBar() {
   );
 }
 
-// âââ Platform Section âââââââââââââââââââââââââââââââââââââââââ
+// ─── Platform Section ─────────────────────────────────────────
 function PlatformSection() {
   return (
     <section id="platform" style={{ padding: '100px 24px', background: COLORS.white }}>
@@ -256,10 +257,10 @@ function PlatformSection() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center' }}>
           <div>
             {[
-              { icon: 'ð', title: 'End-to-End Inspection Management', desc: 'Manage projects from creation through report delivery. Track XRF readings, lab results, hazard analysis, building surveys, and resident interviews in one place.' },
-              { icon: 'ð¤', title: 'AI-Powered Report Generation', desc: 'Our natural language generation engine transforms your inspection data into comprehensive, regulation-compliant reports in minutes, not hours.' },
-              { icon: 'ð¥', title: 'Team Collaboration & Client Portal', desc: 'Invite inspectors, assign roles, share projects, and give clients secure portal access to track their inspection progress in real time.' },
-              { icon: 'ð', title: 'Real-Time Compliance Tracking', desc: 'Michigan LIRA and EBL regulatory requirements are built into every workflow. Automatic threshold checks, assumed positive tracking, and compliance scoring.' },
+              { icon: '📋', title: 'End-to-End Inspection Management', desc: 'Manage projects from creation through report delivery. Track XRF readings, lab results, hazard analysis, building surveys, and resident interviews in one place.' },
+              { icon: '🤖', title: 'AI-Powered Report Generation', desc: 'Our natural language generation engine transforms your inspection data into comprehensive, regulation-compliant reports in minutes, not hours.' },
+              { icon: '👥', title: 'Team Collaboration & Client Portal', desc: 'Invite inspectors, assign roles, share projects, and give clients secure portal access to track their inspection progress in real time.' },
+              { icon: '📊', title: 'Real-Time Compliance Tracking', desc: 'Michigan LIRA and EBL regulatory requirements are built into every workflow. Automatic threshold checks, assumed positive tracking, and compliance scoring.' },
             ].map(f => (
               <div key={f.title} style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
                 <div style={{
@@ -304,7 +305,7 @@ function PlatformSection() {
   );
 }
 
-// âââ Features Grid ââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Features Grid ────────────────────────────────────────────
 function FeaturesGrid() {
   const features = [
     { title: 'XRF Data Management', desc: 'Import and manage X-ray fluorescence readings with automatic threshold detection and component mapping.' },
@@ -360,7 +361,7 @@ function FeatureCard({ title, desc }) {
   );
 }
 
-// âââ Michigan Lead Hazard Map âââââââââââââââââââââââââââââââââ
+// ─── Michigan Lead Hazard Map ─────────────────────────────────
 function MichiganMapSection() {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -598,7 +599,7 @@ function MichiganSVGMap() {
   );
 }
 
-// âââ "How LeadFlow Can Help" Section ââââââââââââââââââââââââââ
+// ─── "How LeadFlow Can Help" Section ──────────────────────────
 function HowSection() {
   const items = [
     { title: 'Residential Inspections', desc: 'LIRA-compliant lead-based paint inspections for single and multi-family homes.' },
@@ -647,7 +648,7 @@ function HowCard({ title, desc }) {
   );
 }
 
-// âââ News & Resources âââââââââââââââââââââââââââââââââââââââââ
+// ─── News & Resources ─────────────────────────────────────────
 function ResourcesSection() {
   const resources = [
     { type: 'REGULATION', title: 'Michigan LIRA Compliance Guide 2026', desc: 'Complete guide to Michigan Lead Inspection and Risk Assessment requirements under current EGLE regulations.', link: '#' },
@@ -700,7 +701,7 @@ function ResourceCard({ type, title, desc, link, typeColor }) {
           <h3 style={{ fontSize: 17, fontWeight: 700, color: COLORS.navy, margin: '10px 0 8px', lineHeight: 1.3 }}>{title}</h3>
           <p style={{ fontSize: 14, color: COLORS.gray500, margin: '0 0 16px', lineHeight: 1.6 }}>{desc}</p>
           <span style={{ fontSize: 14, color: COLORS.orange, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-            Read more <span style={{ transition: 'transform 0.2s', transform: hovered ? 'translateX(4px)' : 'none', display: 'inline-block' }}>â</span>
+            Read more <span style={{ transition: 'transform 0.2s', transform: hovered ? 'translateX(4px)' : 'none', display: 'inline-block' }}>→</span>
           </span>
         </div>
       </div>
@@ -708,7 +709,231 @@ function ResourceCard({ type, title, desc, link, typeColor }) {
   );
 }
 
-// âââ CTA Section ââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Support Section ──────────────────────────────────────────
+function SupportSection() {
+  const CATEGORIES = [
+    { value: 'general',    label: 'General question' },
+    { value: 'bug',        label: 'Report a bug' },
+    { value: 'billing',    label: 'Billing & subscription' },
+    { value: 'feature',    label: 'Feature request' },
+    { value: 'onboarding', label: 'Getting started / onboarding' },
+    { value: 'account',    label: 'Account / login help' },
+  ];
+
+  const [form, setForm] = useState({
+    name: '', email: '', phone: '', company: '',
+    category: 'general', subject: '', message: '',
+  });
+  const [status, setStatus] = useState('idle'); // idle | submitting | success | error
+  const [errMsg, setErrMsg] = useState('');
+  const [ticketId, setTicketId] = useState(null);
+
+  const onChange = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.email || !form.subject || !form.message) {
+      setErrMsg('Email, subject, and message are required.');
+      setStatus('error');
+      return;
+    }
+    setStatus('submitting');
+    setErrMsg('');
+    try {
+      const res = await fetch('/api/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, pageUrl: window.location.href }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrMsg(data.error || 'Something went wrong. Please try again.');
+        setStatus('error');
+        return;
+      }
+      setTicketId(data.ticketId);
+      setStatus('success');
+    } catch (err) {
+      setErrMsg('Network error. Please check your connection and try again.');
+      setStatus('error');
+    }
+  };
+
+  const resetForm = () => {
+    setForm({ name: '', email: '', phone: '', company: '', category: 'general', subject: '', message: '' });
+    setStatus('idle');
+    setErrMsg('');
+    setTicketId(null);
+  };
+
+  const inputStyle = {
+    width: '100%', padding: '12px 14px', fontSize: 15,
+    border: `1px solid ${COLORS.gray300}`, borderRadius: 8,
+    background: COLORS.white, color: COLORS.gray900,
+    outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s',
+    fontFamily: 'inherit',
+  };
+  const labelStyle = { display: 'block', fontSize: 13, fontWeight: 600, color: COLORS.gray700, marginBottom: 6 };
+
+  return (
+    <section id="support" style={{ padding: '100px 24px', background: COLORS.white }}>
+      <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 48 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderRadius: 999, background: COLORS.orangeLight, marginBottom: 20 }}>
+            <span style={{ color: COLORS.orangeDeep, fontSize: 13, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>We're here to help</span>
+          </div>
+          <h2 style={{ fontSize: 42, fontWeight: 800, color: COLORS.navy, letterSpacing: '-1px', margin: '0 0 16px' }}>
+            Get <span style={{ color: COLORS.orange }}>support</span>
+          </h2>
+          <p style={{ fontSize: 18, color: COLORS.gray500, maxWidth: 620, margin: '0 auto', lineHeight: 1.7 }}>
+            Questions, bug reports, billing issues, or just want to chat? Tell us what you need and our team will get back to you within one business day.
+          </p>
+        </div>
+
+        <div style={{
+          background: COLORS.gray50, borderRadius: 20, padding: 40,
+          border: `1px solid ${COLORS.gray200}`, boxShadow: '0 2px 12px rgba(0,0,0,0.03)',
+        }}>
+          {status === 'success' ? (
+            <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <div style={{
+                width: 72, height: 72, borderRadius: '50%', background: 'rgba(22,163,74,0.1)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                marginBottom: 20, fontSize: 36,
+              }}>✓</div>
+              <h3 style={{ fontSize: 24, fontWeight: 700, color: COLORS.navy, margin: '0 0 12px' }}>Message received</h3>
+              <p style={{ fontSize: 15, color: COLORS.gray600, margin: '0 0 8px', lineHeight: 1.6 }}>
+                Thanks — we've logged your request as ticket{' '}
+                <code style={{ padding: '2px 8px', background: COLORS.gray200, borderRadius: 6, fontSize: 14, color: COLORS.navy, fontWeight: 600 }}>#{ticketId}</code>.
+              </p>
+              <p style={{ fontSize: 15, color: COLORS.gray500, margin: '0 0 28px' }}>
+                Check your inbox for a confirmation email. We'll follow up shortly.
+              </p>
+              <button onClick={resetForm} style={{
+                padding: '12px 28px', borderRadius: 10, border: 'none',
+                background: COLORS.orange, color: COLORS.white, fontSize: 15, fontWeight: 600,
+                cursor: 'pointer', transition: 'background 0.2s',
+              }}
+                onMouseEnter={e => e.target.style.background = COLORS.orangeHover}
+                onMouseLeave={e => e.target.style.background = COLORS.orange}
+              >Submit another request</button>
+            </div>
+          ) : (
+            <form onSubmit={submit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+                <div>
+                  <label style={labelStyle}>Your name</label>
+                  <input type="text" value={form.name} onChange={onChange('name')} placeholder="Jane Inspector"
+                    style={inputStyle}
+                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Email <span style={{ color: COLORS.red }}>*</span></label>
+                  <input type="email" value={form.email} onChange={onChange('email')} required placeholder="you@example.com"
+                    style={inputStyle}
+                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+                <div>
+                  <label style={labelStyle}>Phone (optional)</label>
+                  <input type="tel" value={form.phone} onChange={onChange('phone')} placeholder="(555) 123-4567"
+                    style={inputStyle}
+                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Company (optional)</label>
+                  <input type="text" value={form.company} onChange={onChange('company')} placeholder="Your company"
+                    style={inputStyle}
+                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label style={labelStyle}>What's this about?</label>
+                <select value={form.category} onChange={onChange('category')}
+                  style={{ ...inputStyle, cursor: 'pointer' }}
+                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                >
+                  {CATEGORIES.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label style={labelStyle}>Subject <span style={{ color: COLORS.red }}>*</span></label>
+                <input type="text" value={form.subject} onChange={onChange('subject')} required
+                  maxLength={255} placeholder="Brief summary of your request"
+                  style={inputStyle}
+                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <label style={labelStyle}>Message <span style={{ color: COLORS.red }}>*</span></label>
+                <textarea value={form.message} onChange={onChange('message')} required
+                  rows={6} maxLength={10000} placeholder="Tell us what's going on — include any error messages, screenshots you'd like to send, and steps to reproduce if it's a bug."
+                  style={{ ...inputStyle, resize: 'vertical', minHeight: 140, lineHeight: 1.6 }}
+                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                />
+                <div style={{ fontSize: 12, color: COLORS.gray400, marginTop: 4, textAlign: 'right' }}>
+                  {form.message.length} / 10,000
+                </div>
+              </div>
+
+              {status === 'error' && errMsg && (
+                <div style={{
+                  padding: '12px 16px', borderRadius: 10, marginBottom: 20,
+                  background: 'rgba(220,38,38,0.08)', border: `1px solid ${COLORS.red}`,
+                  color: COLORS.red, fontSize: 14,
+                }}>
+                  {errMsg}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <p style={{ fontSize: 13, color: COLORS.gray500, margin: 0, flex: 1, minWidth: 240 }}>
+                  Or email us directly at{' '}
+                  <a href="mailto:support@nexdynegroup.com" style={{ color: COLORS.orange, fontWeight: 600, textDecoration: 'none' }}>
+                    support@nexdynegroup.com
+                  </a>
+                </p>
+                <button type="submit" disabled={status === 'submitting'}
+                  style={{
+                    padding: '14px 32px', borderRadius: 10, border: 'none',
+                    background: status === 'submitting' ? COLORS.gray400 : COLORS.orange,
+                    color: COLORS.white, fontSize: 15, fontWeight: 600,
+                    cursor: status === 'submitting' ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s', boxShadow: '0 4px 16px rgba(232,101,10,0.25)',
+                  }}
+                  onMouseEnter={e => { if (status !== 'submitting') e.target.style.background = COLORS.orangeHover; }}
+                  onMouseLeave={e => { if (status !== 'submitting') e.target.style.background = COLORS.orange; }}
+                >
+                  {status === 'submitting' ? 'Sending…' : 'Send request →'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── CTA Section ──────────────────────────────────────────────
 function CTASection() {
   return (
     <section style={{
@@ -720,14 +945,14 @@ function CTASection() {
           Get started with LeadFlow AI
         </h2>
         <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.6)', margin: '0 0 48px', lineHeight: 1.7 }}>
-          Join Michigan's leading inspection teams. Free plan available â no credit card required.
+          Join Michigan's leading inspection teams. Free plan available — no credit card required.
         </p>
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: 48 }}>
           {[
-            { icon: 'â', title: 'Get started for free', desc: 'Create your account and start inspecting in minutes.', link: '/login?register=true', cta: 'Start for free' },
-            { icon: 'â¨', title: 'Need help choosing?', desc: 'Compare plans and features to find your perfect fit.', link: '#features', cta: 'See features' },
-            { icon: 'ð¬', title: 'Talk to our team', desc: 'Have questions? Our support team is ready to help.', link: 'mailto:support@leadflow.dev', cta: 'Contact us' },
+            { icon: '✅', title: 'Get started for free', desc: 'Create your account and start inspecting in minutes.', link: '/login?register=true', cta: 'Start for free' },
+            { icon: '✨', title: 'Need help choosing?', desc: 'Compare plans and features to find your perfect fit.', link: '#features', cta: 'See features' },
+            { icon: '💬', title: 'Talk to our team', desc: 'Have questions? Our support team is ready to help.', link: '#support', cta: 'Contact us' },
           ].map(item => (
             <div key={item.title} style={{ flex: 1, maxWidth: 240, textAlign: 'center' }}>
               <div style={{ fontSize: 36, marginBottom: 16 }}>{item.icon}</div>
@@ -740,7 +965,7 @@ function CTASection() {
                 onMouseEnter={e => e.target.style.color = '#fbbf24'}
                 onMouseLeave={e => e.target.style.color = COLORS.orange}
               >
-                {item.cta} <span>â</span>
+                {item.cta} <span>→</span>
               </a>
             </div>
           ))}
@@ -750,7 +975,7 @@ function CTASection() {
   );
 }
 
-// âââ Footer âââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ─── Footer ───────────────────────────────────────────────────
 function Footer() {
   const columns = [
     {
@@ -759,7 +984,7 @@ function Footer() {
         { label: 'Free plan', href: '/login?register=true' },
         { label: 'Inspector signup', href: '/login?register=true' },
         { label: 'Client portal', href: '/portal' },
-        { label: 'Request a demo', href: 'mailto:support@leadflow.dev' },
+        { label: 'Request a demo', href: 'mailto:support@nexdynegroup.com' },
       ],
     },
     {
@@ -794,7 +1019,7 @@ function Footer() {
       title: 'COMPANY',
       links: [
         { label: 'About LeadFlow AI', href: '#company' },
-        { label: 'Contact support', href: 'mailto:support@leadflow.dev' },
+        { label: 'Contact support', href: 'mailto:support@nexdynegroup.com' },
         { label: 'System status', href: '#' },
         { label: 'Careers', href: '#' },
       ],
@@ -825,7 +1050,7 @@ function Footer() {
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '24px 24px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 28, height: 28, borderRadius: 7, background: `linear-gradient(135deg, ${COLORS.orangeDeep}, ${COLORS.orangeGlow})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: COLORS.white, fontSize: 12 }}>LF</div>
-          <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Â© 2026 LeadFlow AI. All rights reserved.</span>
+          <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>© 2026 LeadFlow AI. All rights reserved.</span>
         </div>
         <div style={{ display: 'flex', gap: 24 }}>
           {['Privacy policy', 'Terms of use', 'Report an issue'].map(t => (
@@ -840,7 +1065,7 @@ function Footer() {
   );
 }
 
-// âââ Company Section ââââââââââââââââââââââââââââââââââââââââââ
+// ─── Company Section ──────────────────────────────────────────
 function CompanySection() {
   return (
     <section id="company" style={{ padding: '100px 24px', background: COLORS.white }}>
@@ -851,10 +1076,10 @@ function CompanySection() {
               Built by inspectors,{' '}<span style={{ color: COLORS.orange }}>for inspectors</span>
             </h2>
             <p style={{ fontSize: 17, color: COLORS.gray500, lineHeight: 1.8, margin: '0 0 24px' }}>
-              LeadFlow AI was created by environmental consulting professionals who understand the daily challenges of lead inspection work in Michigan. We've lived the paperwork burden, the compliance complexity, and the pressure to protect families â so we built a platform that solves it all.
+              LeadFlow AI was created by environmental consulting professionals who understand the daily challenges of lead inspection work in Michigan. We've lived the paperwork burden, the compliance complexity, and the pressure to protect families — so we built a platform that solves it all.
             </p>
             <p style={{ fontSize: 17, color: COLORS.gray500, lineHeight: 1.8, margin: '0 0 32px' }}>
-              Our mission is simple: make lead inspections faster, more accurate, and more accessible â so every child in Michigan can live in a safe home.
+              Our mission is simple: make lead inspections faster, more accurate, and more accessible — so every child in Michigan can live in a safe home.
             </p>
             <div style={{ display: 'flex', gap: 32 }}>
               {[
@@ -873,7 +1098,7 @@ function CompanySection() {
             background: `linear-gradient(135deg, ${COLORS.navy}, ${COLORS.navyLight})`,
             borderRadius: 20, padding: 48, textAlign: 'center',
           }}>
-            <div style={{ fontSize: 72, marginBottom: 20 }}>ð¡</div>
+            <div style={{ fontSize: 72, marginBottom: 20 }}>🏡</div>
             <div style={{ fontSize: 48, fontWeight: 800, color: COLORS.orange }}>Every child</div>
             <div style={{ fontSize: 28, fontWeight: 600, color: COLORS.white, marginTop: 8 }}>deserves a lead-safe home</div>
             <div style={{ width: 60, height: 4, background: COLORS.orange, borderRadius: 2, margin: '24px auto 0' }} />
@@ -884,7 +1109,7 @@ function CompanySection() {
   );
 }
 
-// âââ Main Landing Page ââââââââââââââââââââââââââââââââââââââââ
+// ─── Main Landing Page ────────────────────────────────────────
 export default function LandingPage() {
   const [scrolled, setScrolled] = useState(false);
 
@@ -913,6 +1138,7 @@ export default function LandingPage() {
       <HowSection />
       <ResourcesSection />
       <CompanySection />
+      <SupportSection />
       <CTASection />
       <Footer />
     </div>
