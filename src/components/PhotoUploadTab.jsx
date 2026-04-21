@@ -1,6 +1,19 @@
 import React, { useState, useRef, useMemo } from 'react';
 
 // ============================================================================
+// SAFETY LIMITS — prevent browser OOM on phone uploads
+// ----------------------------------------------------------------------------
+// Modern phones routinely produce 8-15 MB photos; 50+ MP images pushed through
+// canvas.toDataURL() + stored in Redux state will crash tabs on older devices.
+// Hard-reject over 15 MB so the inspector sees an error instead of a freeze.
+// Warn between 5-15 MB so large batches don't silently exhaust storage.
+// ============================================================================
+var MAX_FILE_BYTES = 15 * 1024 * 1024;   // 15 MB per file — hard reject
+var WARN_FILE_BYTES = 5 * 1024 * 1024;   // 5 MB per file — soft warn
+var MAX_TOTAL_PHOTOS = 500;              // project-wide hard cap (Appendix D sanity)
+var WARN_TOTAL_PHOTOS = 150;             // soft warn
+
+// ============================================================================
 // REQUIRED PHOTO CATEGORIES
 // Per Michigan LIRA-EBL Report Checklist (Form 633775, V.3), HUD Chapters 5/7,
 // EPA 40 CFR 745, and HUD 24 CFR Part 35
@@ -119,6 +132,7 @@ function PhotoUploadTab({ state, dispatch }) {
   var [selectedCondition, setSelectedCondition] = useState('N/A');
   var [selectedCategory, setSelectedCategory] = useState('interior_room');
   var [caption, setCaption] = useState('');
+  var [selectedDirection, setSelectedDirection] = useState('');
 
   // UI state
   var [viewMode, setViewMode] = useState('gallery');
@@ -126,12 +140,25 @@ function PhotoUploadTab({ state, dispatch }) {
   var [editingPhoto, setEditingPhoto] = useState(null);
   var [expandedPhoto, setExpandedPhoto] = useState(null);
   var [showChecklist, setShowChecklist] = useState(true);
+  // Deletion confirmation — photos are evidence; HUD 24 CFR 35.915 and
+  // Michigan R 325.99207 require 3-yr retention of inspection records,
+  // which includes the supporting photo documentation. A stray click on
+  // a small trashcan icon shouldn't silently remove a piece of the record.
+  var [deleteTarget, setDeleteTarget] = useState(null); // photo object or null
 
   var photos = state.photos || [];
   var rooms = getUniqueRooms(state.xrfData);
   var componentsForRoom = selectedRoom ? getComponentsForRoom(state.xrfData, selectedRoom) : [];
   var inspectionType = state.projectInfo.inspectionType || 'Risk Assessment';
   var programType = state.projectInfo.programType || 'HUD';
+
+  // Property context — used to dim the checklist when photo categories don't apply
+  // (e.g., a post-1978 non-target-housing property has no EPA lead hazards, so
+  // hazard_closeup isn't actually a blocker, just a "nice to have" for records).
+  var yearBuilt = parseInt(state.projectInfo.yearBuilt, 10);
+  var isPre1978 = !isNaN(yearBuilt) && yearBuilt < 1978;
+  var isPost1978Only = !isNaN(yearBuilt) && yearBuilt >= 1978;
+  var isClearance = /clearance/i.test(inspectionType || '');
 
   // Build the full categories list based on program and inspection type
   var allCategories = useMemo(function() {
@@ -142,10 +169,17 @@ function PhotoUploadTab({ state, dispatch }) {
     if (programType === 'EBL' || programType === 'Medicaid') {
       cats = cats.concat(EBL_CATEGORIES);
     }
-    // Always include clearance categories (used when abatement work is done)
-    cats = cats.concat(CLEARANCE_CATEGORIES);
+    // Clearance categories become REQUIRED when the inspection is a clearance —
+    // HUD 24 CFR 35.1340(b) requires documentation before & after abatement.
+    var clearanceCats = CLEARANCE_CATEGORIES.map(function(c) {
+      if (isClearance && (c.id === 'clearance_before' || c.id === 'clearance_after')) {
+        return Object.assign({}, c, { required: true });
+      }
+      return c;
+    });
+    cats = cats.concat(clearanceCats);
     return cats;
-  }, [inspectionType, programType]);
+  }, [inspectionType, programType, isClearance]);
 
   // Compute completeness checklist
   var requiredCategories = allCategories.filter(function(c) { return c.required; });
@@ -181,57 +215,156 @@ function PhotoUploadTab({ state, dispatch }) {
   // ============================================================================
   // HANDLERS
   // ============================================================================
+
+  // Get GPS position (non-blocking)
+  function getGPSPosition() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve({ latitude: null, longitude: null });
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => resolve({ latitude: null, longitude: null }),
+        { timeout: 5000, enableHighAccuracy: true }
+      );
+    });
+  }
+
   function processFiles(files) {
     var fileArray = Array.from(files);
+
+    // ── 1. Filter to image files only ──
+    var imageFiles = fileArray.filter(function(f) { return f.type.startsWith('image/'); });
+    var skippedNonImage = fileArray.length - imageFiles.length;
+
+    // ── 2. Enforce per-file size cap (MAX_FILE_BYTES) and collect soft warnings ──
+    var acceptedFiles = [];
+    var oversizedNames = [];
+    var largeWarnNames = [];
+    imageFiles.forEach(function(f) {
+      if (f.size > MAX_FILE_BYTES) {
+        oversizedNames.push(f.name + ' (' + (f.size / 1048576).toFixed(1) + ' MB)');
+        return;
+      }
+      if (f.size > WARN_FILE_BYTES) {
+        largeWarnNames.push(f.name);
+      }
+      acceptedFiles.push(f);
+    });
+
+    // ── 3. Enforce project-wide photo cap ──
+    var currentCount = photos.length;
+    var roomForMore = MAX_TOTAL_PHOTOS - currentCount;
+    var overflowCount = 0;
+    if (acceptedFiles.length > roomForMore) {
+      overflowCount = acceptedFiles.length - roomForMore;
+      acceptedFiles = acceptedFiles.slice(0, roomForMore);
+    }
+
+    // ── 4. Surface all warnings in one message ──
+    var msgs = [];
+    if (skippedNonImage > 0) msgs.push(skippedNonImage + ' non-image file' + (skippedNonImage === 1 ? '' : 's') + ' skipped.');
+    if (oversizedNames.length > 0) {
+      msgs.push('Skipped ' + oversizedNames.length + ' photo' + (oversizedNames.length === 1 ? '' : 's') +
+        ' over ' + (MAX_FILE_BYTES / 1048576) + ' MB:\n  - ' + oversizedNames.slice(0, 5).join('\n  - ') +
+        (oversizedNames.length > 5 ? '\n  - ...and ' + (oversizedNames.length - 5) + ' more' : ''));
+    }
+    if (overflowCount > 0) {
+      msgs.push('Project cap is ' + MAX_TOTAL_PHOTOS + ' photos. ' + overflowCount + ' photo' +
+        (overflowCount === 1 ? '' : 's') + ' skipped.');
+    }
+    if (largeWarnNames.length > 0 && oversizedNames.length === 0) {
+      // Only soft-warn if nothing was hard-rejected (avoid stacking dialogs)
+      console.warn('[PhotoUpload] Large photos (>5MB) accepted:', largeWarnNames);
+    }
+    if (msgs.length > 0) {
+      alert(msgs.join('\n\n'));
+    }
+
+    if (acceptedFiles.length === 0) return;
+    var total = acceptedFiles.length;
     var newPhotos = [];
     var processed = 0;
-    var total = fileArray.filter(function(f) { return f.type.startsWith('image/'); }).length;
-    if (total === 0) return;
 
-    fileArray.forEach(function(file) {
-      if (!file.type.startsWith('image/')) return;
+    // Request device GPS once per batch (used only when file.lastModified GPS
+    // is unavailable — device location at upload time is a FALLBACK, not a
+    // substitute for EXIF GPS, which true chain-of-custody would require).
+    getGPSPosition().then(function(gpsData) {
+      acceptedFiles.forEach(function(file) {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var img = new Image();
+          img.onload = function() {
+            var canvas = document.createElement('canvas');
+            var maxDim = 1200;
+            var w = img.width;
+            var h = img.height;
+            if (w > maxDim || h > maxDim) {
+              if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+              else { w = Math.round(w * maxDim / h); h = maxDim; }
+            }
+            canvas.width = w;
+            canvas.height = h;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
-      var reader = new FileReader();
-      reader.onload = function(e) {
-        var img = new Image();
-        img.onload = function() {
-          var canvas = document.createElement('canvas');
-          var maxDim = 1200;
-          var w = img.width;
-          var h = img.height;
-          if (w > maxDim || h > maxDim) {
-            if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
-            else { w = Math.round(w * maxDim / h); h = maxDim; }
-          }
-          canvas.width = w;
-          canvas.height = h;
-          var ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, w, h);
-          var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            // Chain-of-custody timestamp resolution:
+            // 1. file.lastModified (photo capture time per OS filesystem)
+            // 2. new Date() (upload time — fallback only)
+            // timestampSource lets the report note which was used.
+            var capturedAt = file.lastModified ? new Date(file.lastModified).toISOString() : null;
+            var uploadedAt = new Date().toISOString();
 
-          newPhotos.push({
-            id: generateId(),
-            dataUrl: dataUrl,
-            fileName: file.name,
-            room: selectedRoom || '',
-            component: selectedComponent || '',
-            side: selectedSide || '',
-            condition: selectedCondition || 'N/A',
-            category: selectedCategory || 'interior_room',
-            caption: caption || '',
-            timestamp: new Date().toISOString(),
-            width: w,
-            height: h
-          });
+            newPhotos.push({
+              id: generateId(),
+              dataUrl: dataUrl,
+              fileName: file.name,
+              fileSizeBytes: file.size,
+              room: selectedRoom || '',
+              component: selectedComponent || '',
+              side: selectedSide || '',
+              condition: selectedCondition || 'N/A',
+              category: selectedCategory || 'interior_room',
+              caption: caption || '',
+              compassDirection: selectedDirection || '',
+              timestamp: capturedAt || uploadedAt,
+              timestampSource: capturedAt ? 'file-lastModified' : 'upload-time',
+              uploadedAt: uploadedAt,
+              width: w,
+              height: h,
+              latitude: gpsData.latitude,
+              longitude: gpsData.longitude
+            });
 
+            processed++;
+            if (processed === total) {
+              dispatch({ type: 'ADD_PHOTOS', payload: newPhotos });
+              setSelectedDirection('');
+            }
+          };
+          img.onerror = function() {
+            // Corrupt or unreadable image — don't block the batch, count as processed
+            console.error('[PhotoUpload] Failed to decode', file.name);
+            processed++;
+            if (processed === total && newPhotos.length > 0) {
+              dispatch({ type: 'ADD_PHOTOS', payload: newPhotos });
+              setSelectedDirection('');
+            }
+          };
+          img.src = e.target.result;
+        };
+        reader.onerror = function() {
+          console.error('[PhotoUpload] FileReader failed for', file.name);
           processed++;
-          if (processed === total) {
+          if (processed === total && newPhotos.length > 0) {
             dispatch({ type: 'ADD_PHOTOS', payload: newPhotos });
+            setSelectedDirection('');
           }
         };
-        img.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
+        reader.readAsDataURL(file);
+      });
     });
   }
 
@@ -243,11 +376,21 @@ function PhotoUploadTab({ state, dispatch }) {
   }
 
   function handleDeletePhoto(photoId) {
-    if (window.confirm('Delete this photo?')) {
-      dispatch({ type: 'DELETE_PHOTO', payload: photoId });
-      if (editingPhoto === photoId) setEditingPhoto(null);
-      if (expandedPhoto === photoId) setExpandedPhoto(null);
-    }
+    // Open the confirmation modal instead of the browser's native confirm().
+    // Finding the full photo object so the modal can show a thumbnail +
+    // category preview — a blind "Delete this photo?" hides exactly the
+    // information needed to decide whether to proceed.
+    var target = photos.find(function(p) { return p.id === photoId; });
+    if (target) setDeleteTarget(target);
+  }
+
+  function confirmDeletePhoto() {
+    if (!deleteTarget) return;
+    var photoId = deleteTarget.id;
+    dispatch({ type: 'DELETE_PHOTO', payload: photoId });
+    if (editingPhoto === photoId) setEditingPhoto(null);
+    if (expandedPhoto === photoId) setExpandedPhoto(null);
+    setDeleteTarget(null);
   }
 
   function handleUpdatePhoto(photoId, updates) {
@@ -299,7 +442,35 @@ function PhotoUploadTab({ state, dispatch }) {
               <strong>Inspection Type:</strong> {inspectionType} | <strong>Program:</strong> {programType}
               {inspectionType !== 'LBP Inspection Only' && <span> | Dust & soil sample location photos required</span>}
               {(programType === 'EBL' || programType === 'Medicaid') && <span> | Child-specific area photos required</span>}
+              {isClearance && <span> | Clearance before/after photos required (24 CFR 35.1340(b))</span>}
             </div>
+
+            {/* Property / age context — affects whether lead-hazard photo types apply */}
+            {isPost1978Only && (
+              <div className="bg-yellow-50 border border-yellow-300 rounded px-3 py-2 mb-3 text-xs text-yellow-900">
+                <strong>Post-1978 property ({yearBuilt}):</strong> EPA 40 CFR 745.103 presumption of lead-based paint
+                does not apply. Hazard photo categories are optional for documentation only.
+              </div>
+            )}
+            {isPre1978 && (
+              <div className="bg-red-50 border border-red-300 rounded px-3 py-2 mb-3 text-xs text-red-900">
+                <strong>Pre-1978 target housing ({yearBuilt}):</strong> Deteriorated-paint close-up
+                photos (40 CFR 745.227(b)(2)) and each sampling location must be documented.
+              </div>
+            )}
+
+            {/* Photo count warning — prevents silent Redux state bloat */}
+            {photos.length >= WARN_TOTAL_PHOTOS && photos.length < MAX_TOTAL_PHOTOS && (
+              <div className="bg-amber-50 border border-amber-300 rounded px-3 py-2 mb-3 text-xs text-amber-900">
+                {photos.length} photos stored — browsers may slow when state grows past
+                {' '}{MAX_TOTAL_PHOTOS} (hard cap). Consider splitting very large projects.
+              </div>
+            )}
+            {photos.length >= MAX_TOTAL_PHOTOS && (
+              <div className="bg-red-100 border border-red-400 rounded px-3 py-2 mb-3 text-xs text-red-900">
+                Project photo cap ({MAX_TOTAL_PHOTOS}) reached — new uploads will be blocked.
+              </div>
+            )}
 
             {/* Checklist grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
@@ -500,6 +671,25 @@ function PhotoUploadTab({ state, dispatch }) {
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
             />
           </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Compass Direction</label>
+            <select
+              value={selectedDirection}
+              onChange={function(e) { setSelectedDirection(e.target.value); }}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm"
+            >
+              <option value="">-- Select Direction --</option>
+              <option value="N">N (North)</option>
+              <option value="NE">NE (Northeast)</option>
+              <option value="E">E (East)</option>
+              <option value="SE">SE (Southeast)</option>
+              <option value="S">S (South)</option>
+              <option value="SW">SW (Southwest)</option>
+              <option value="W">W (West)</option>
+              <option value="NW">NW (Northwest)</option>
+            </select>
+          </div>
         </div>
 
         {/* Upload buttons */}
@@ -612,6 +802,18 @@ function PhotoUploadTab({ state, dispatch }) {
                                  'bg-green-100 text-green-700')
                               }>{photo.condition}</span>
                             )}
+                            {photo.compassDirection && (
+                              <p className="text-xs text-gray-600 mt-0.5">Direction: {photo.compassDirection}</p>
+                            )}
+                            {/* GPS Badge */}
+                            <div className="mt-1 flex items-center gap-1">
+                              <span className={'w-2 h-2 rounded-full ' + (photo.latitude && photo.longitude ? 'bg-green-500' : 'bg-gray-300')}></span>
+                              <span className="text-xs text-gray-500">
+                                {photo.latitude && photo.longitude
+                                  ? photo.latitude.toFixed(5) + ', ' + photo.longitude.toFixed(5)
+                                  : 'No GPS'}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Action buttons */}
@@ -639,6 +841,18 @@ function PhotoUploadTab({ state, dispatch }) {
                                   <p className="text-xs text-gray-400 mt-1">
                                     Category: {getCategoryLabel(photo.category)} | Condition: {photo.condition} | {photo.timestamp ? new Date(photo.timestamp).toLocaleString() : ''}
                                   </p>
+                                  {photo.compassDirection && (
+                                    <p className="text-xs text-gray-600 mt-1">Compass Direction: {photo.compassDirection}</p>
+                                  )}
+                                  {/* GPS Info */}
+                                  <div className="mt-2 pt-2 border-t border-gray-200 flex items-center gap-2">
+                                    <span className={'w-2 h-2 rounded-full ' + (photo.latitude && photo.longitude ? 'bg-green-500' : 'bg-gray-300')}></span>
+                                    <span className="text-xs text-gray-600">
+                                      GPS: {photo.latitude && photo.longitude
+                                        ? photo.latitude.toFixed(6) + ', ' + photo.longitude.toFixed(6)
+                                        : 'Not captured'}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -656,6 +870,7 @@ function PhotoUploadTab({ state, dispatch }) {
                                 allCategories={allCategories}
                                 onUpdate={handleUpdatePhoto}
                                 onClose={function() { setEditingPhoto(null); }}
+                                dispatch={dispatch}
                               />
                             </div>
                           )}
@@ -690,6 +905,16 @@ function PhotoUploadTab({ state, dispatch }) {
                               {photo.timestamp && (
                                 <span className="text-xs text-gray-400">{new Date(photo.timestamp).toLocaleString()}</span>
                               )}
+                              {photo.compassDirection && (
+                                <span className="text-xs bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded">Direction: {photo.compassDirection}</span>
+                              )}
+                              {/* GPS Badge */}
+                              <span className={'text-xs px-1.5 py-0.5 rounded ' + (photo.latitude && photo.longitude ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500')}>
+                                <span className={'w-1.5 h-1.5 inline-block rounded-full mr-1 ' + (photo.latitude && photo.longitude ? 'bg-green-500' : 'bg-gray-300')}></span>
+                                {photo.latitude && photo.longitude
+                                  ? photo.latitude.toFixed(5) + ', ' + photo.longitude.toFixed(5)
+                                  : 'No GPS'}
+                              </span>
                             </div>
                           </div>
                           <div className="flex gap-2 shrink-0">
@@ -703,6 +928,7 @@ function PhotoUploadTab({ state, dispatch }) {
                               <EditPhotoForm photo={photo} rooms={rooms} xrfData={state.xrfData}
                                 allCategories={allCategories} onUpdate={handleUpdatePhoto}
                                 onClose={function() { setEditingPhoto(null); }}
+                                dispatch={dispatch}
                               />
                             </div>
                           )}
@@ -731,6 +957,15 @@ function PhotoUploadTab({ state, dispatch }) {
           </p>
         </div>
       )}
+
+      {/* ── DELETE CONFIRMATION MODAL ── */}
+      {deleteTarget && (
+        <DeletePhotoModal
+          photo={deleteTarget}
+          onConfirm={confirmDeletePhoto}
+          onCancel={function() { setDeleteTarget(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -738,21 +973,59 @@ function PhotoUploadTab({ state, dispatch }) {
 // ============================================================================
 // EDIT FORM SUB-COMPONENT
 // ============================================================================
-function EditPhotoForm({ photo, rooms, xrfData, allCategories, onUpdate, onClose }) {
+function EditPhotoForm({ photo, rooms, xrfData, allCategories, onUpdate, onClose, dispatch }) {
   var [room, setRoom] = useState(photo.room || '');
   var [component, setComponent] = useState(photo.component || '');
   var [side, setSide] = useState(photo.side || '');
   var [condition, setCondition] = useState(photo.condition || 'N/A');
   var [category, setCategory] = useState(photo.category || 'interior_room');
   var [editCaption, setEditCaption] = useState(photo.caption || '');
+  var [editDirection, setEditDirection] = useState(photo.compassDirection || '');
+  var [isTaggingGPS, setIsTaggingGPS] = useState(false);
 
   var componentsForRoom = room ? getComponentsForRoom(xrfData, room) : [];
 
   var CONDITIONS = ['Intact', 'Fair', 'Deteriorated', 'N/A'];
 
   function handleSave() {
-    onUpdate(photo.id, { room: room, component: component, side: side, condition: condition, category: category, caption: editCaption });
+    onUpdate(photo.id, { room: room, component: component, side: side, condition: condition, category: category, caption: editCaption, compassDirection: editDirection });
     onClose();
+  }
+
+  function handleTagGPS() {
+    setIsTaggingGPS(true);
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by this browser.');
+      setIsTaggingGPS(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        // Dispatch via the generic UPDATE_PHOTO action — the reducer already
+        // handles arbitrary patches on a photo's updates. The previous code
+        // dispatched UPDATE_PHOTO_GPS which has no reducer handler, so the
+        // GPS pin was silently dropped on the floor. (Verified against the
+        // initialState.js reducer on 2026-04-20.)
+        dispatch({
+          type: 'UPDATE_PHOTO',
+          payload: {
+            id: photo.id,
+            updates: {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              gpsTaggedAt: new Date().toISOString(),
+            }
+          }
+        });
+        setIsTaggingGPS(false);
+        alert('GPS location captured: ' + pos.coords.latitude.toFixed(6) + ', ' + pos.coords.longitude.toFixed(6));
+      },
+      function() {
+        setIsTaggingGPS(false);
+        alert('Unable to retrieve GPS location. Please check permissions.');
+      },
+      { timeout: 5000, enableHighAccuracy: true }
+    );
   }
 
   return (
@@ -850,6 +1123,20 @@ function EditPhotoForm({ photo, rooms, xrfData, allCategories, onUpdate, onClose
             {CONDITIONS.map(function(c) { return <option key={c} value={c}>{c}</option>; })}
           </select>
         </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500">Compass Direction</label>
+          <select value={editDirection} onChange={function(e) { setEditDirection(e.target.value); }} className="w-full border rounded px-2 py-1 text-sm">
+            <option value="">-- None --</option>
+            <option value="N">N (North)</option>
+            <option value="NE">NE (Northeast)</option>
+            <option value="E">E (East)</option>
+            <option value="SE">SE (Southeast)</option>
+            <option value="S">S (South)</option>
+            <option value="SW">SW (Southwest)</option>
+            <option value="W">W (West)</option>
+            <option value="NW">NW (Northwest)</option>
+          </select>
+        </div>
       </div>
       <div>
         <label className="block text-xs font-semibold text-gray-500">Category</label>
@@ -873,9 +1160,104 @@ function EditPhotoForm({ photo, rooms, xrfData, allCategories, onUpdate, onClose
           className="w-full border rounded px-2 py-1 text-sm" placeholder="Describe what this photo shows..."
         />
       </div>
+      {/* GPS Section */}
+      <div className="border-t pt-2 mt-2">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-semibold text-gray-600">GPS Coordinates</label>
+          <span className={'text-xs px-2 py-0.5 rounded ' + (photo.latitude && photo.longitude ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600')}>
+            <span className={'w-1.5 h-1.5 inline-block rounded-full mr-1 ' + (photo.latitude && photo.longitude ? 'bg-green-500' : 'bg-gray-400')}></span>
+            {photo.latitude && photo.longitude
+              ? photo.latitude.toFixed(5) + ', ' + photo.longitude.toFixed(5)
+              : 'No GPS'}
+          </span>
+        </div>
+        {(!photo.latitude || !photo.longitude) && (
+          <button
+            onClick={handleTagGPS}
+            disabled={isTaggingGPS}
+            className="w-full px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 font-medium disabled:bg-gray-400"
+          >
+            {isTaggingGPS ? 'Requesting location...' : 'Tag GPS Location'}
+          </button>
+        )}
+      </div>
       <div className="flex gap-2 pt-1">
         <button onClick={handleSave} className="px-3 py-1 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700">Save</button>
         <button onClick={onClose} className="px-3 py-1 bg-gray-200 text-gray-700 rounded text-sm font-medium hover:bg-gray-300">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// DELETE PHOTO MODAL — replaces window.confirm()
+// Photos are documentary evidence for the inspection. 24 CFR 35.915 and
+// Michigan R 325.99207 both require inspection records (including supporting
+// photographs) to be retained 3 years. A stray click on a small trashcan
+// should not irreversibly discard evidence, so this modal shows:
+//   1. The photo thumbnail + caption so the inspector verifies intent
+//   2. An explicit "Delete permanently" button with red framing
+//   3. The retention rule so the inspector pauses if the photo predates a
+//      finalized report (where the original is preserved in the signed PDF)
+// ============================================================================
+function DeletePhotoModal({ photo, onConfirm, onCancel }) {
+  if (!photo) return null;
+  var catLabel = photo.category || 'uncategorized';
+  var when = photo.timestamp ? new Date(photo.timestamp).toLocaleString() : 'unknown time';
+
+  return (
+    <div
+      className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-lg shadow-xl max-w-md w-full p-5"
+        onClick={function(e) { e.stopPropagation(); }}
+      >
+        <h3 className="text-lg font-bold text-red-700 mb-3">Delete this photo?</h3>
+
+        <div className="flex gap-3 mb-3">
+          <img
+            src={photo.dataUrl}
+            alt={photo.caption || 'Photo to delete'}
+            className="w-24 h-24 object-cover rounded border border-gray-300 flex-shrink-0"
+          />
+          <div className="flex-1 min-w-0 text-sm">
+            <p className="font-semibold text-gray-800 truncate">
+              {photo.room || 'Unassigned'}
+              {photo.component ? ' — ' + photo.component : ''}
+              {photo.side ? ' (Side ' + photo.side + ')' : ''}
+            </p>
+            <p className="text-gray-600 truncate">{catLabel}</p>
+            {photo.caption && (
+              <p className="text-xs text-gray-500 italic truncate">{photo.caption}</p>
+            )}
+            <p className="text-xs text-gray-400 mt-1">Captured {when}</p>
+          </div>
+        </div>
+
+        <div className="bg-red-50 border border-red-200 rounded px-3 py-2 mb-4 text-xs text-red-800 leading-relaxed">
+          <strong>This cannot be undone.</strong> Inspection records (including
+          photo documentation) must be retained for 3 years under
+          <strong> 24 CFR 35.915</strong> and <strong>Michigan R 325.99207</strong>.
+          If this photo has already been included in a signed report, the PDF
+          retains the copy — but the live project state will no longer show it.
+        </div>
+
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm font-medium bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Delete permanently
+          </button>
+        </div>
       </div>
     </div>
   );
