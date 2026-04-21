@@ -13,6 +13,88 @@ const DESIGNATION_LABELS = {
   project_designer: 'Lead Project Designer',
 };
 
+// ────────────────────────────────────────────────────────────────────────────
+// Regulatory compliance helpers
+//
+// Michigan Lead Abatement Act (Public Health Code Act 368 of 1978, Part 54A;
+// R 325.99308) — individual certifications expire and must be renewed. EPA
+// 40 CFR 745.225(c)(2) requires 8-hour annual refresher training for Lead-Based
+// Paint Activities persons. MIOSHA Part 603 / OSHA 29 CFR 1926.62(j) requires
+// medical surveillance when airborne Pb exposure ≥ 30 µg/m³ action level for
+// 30+ days in any 12-month period (or any worker with BLL ≥ 40 µg/dL).
+//
+// The API may not yet return these fields — this UI degrades gracefully and
+// surfaces a "Not on file" warning with the regulatory citation so the gap is
+// visible. Values expected on each user (optional):
+//   licenseExpirationDate    ISO date (e.g. "2027-06-30")
+//   lastRefresherDate        ISO date — 8-hour annual refresher training
+//   medicalSurveillanceDate  ISO date — last exam
+//   bloodLeadLevel           number µg/dL from most recent surveillance
+// ────────────────────────────────────────────────────────────────────────────
+const DAY_MS = 24 * 60 * 60 * 1000;
+const REG_CITATIONS = {
+  license: 'Michigan R 325.99308 / MCL 333.5451–5477',
+  refresher: '40 CFR 745.225(c)(2) — 8-hour annual refresher',
+  medical: 'MIOSHA Part 603 / 29 CFR 1926.62(j) medical surveillance',
+};
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((d.getTime() - Date.now()) / DAY_MS);
+}
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / DAY_MS);
+}
+
+function licenseStatus(u) {
+  const d = daysUntil(u.licenseExpirationDate);
+  if (d === null) return { state: 'missing', label: 'Expiration not on file', cite: REG_CITATIONS.license };
+  if (d < 0) return { state: 'expired', label: `Expired ${Math.abs(d)} d ago`, cite: REG_CITATIONS.license };
+  if (d < 30) return { state: 'critical', label: `Expires in ${d} d`, cite: REG_CITATIONS.license };
+  if (d < 90) return { state: 'warning', label: `Expires in ${d} d`, cite: REG_CITATIONS.license };
+  return { state: 'ok', label: `Valid (${d} d left)`, cite: REG_CITATIONS.license };
+}
+function refresherStatus(u) {
+  const s = daysSince(u.lastRefresherDate);
+  // Annual — warn at 11 mo, expire at 12 mo
+  if (s === null) return { state: 'missing', label: 'Refresher not on file', cite: REG_CITATIONS.refresher };
+  if (s > 365) return { state: 'expired', label: `Overdue by ${s - 365} d`, cite: REG_CITATIONS.refresher };
+  if (s > 335) return { state: 'critical', label: `Due in ${365 - s} d`, cite: REG_CITATIONS.refresher };
+  if (s > 275) return { state: 'warning', label: `Due in ${365 - s} d`, cite: REG_CITATIONS.refresher };
+  return { state: 'ok', label: `Completed ${s} d ago`, cite: REG_CITATIONS.refresher };
+}
+function medicalStatus(u) {
+  // Medical surveillance is annual when exposure triggers it. If the user is an
+  // abatement worker/supervisor we assume it's required; for inspector/RA roles
+  // who don't disturb paint it may legitimately be N/A.
+  const triggerRoles = ['abatement_worker', 'abatement_supervisor', 'project_designer'];
+  const required = triggerRoles.includes(u.designation);
+  const s = daysSince(u.medicalSurveillanceDate);
+  if (!required && s === null) return { state: 'na', label: 'N/A (no paint-disturbing work)', cite: REG_CITATIONS.medical };
+  if (s === null) return { state: 'missing', label: 'Medical exam not on file', cite: REG_CITATIONS.medical };
+  // MIOSHA — annual or more frequent if BLL ≥ 40 µg/dL
+  const bll = parseFloat(u.bloodLeadLevel);
+  const isElevated = !isNaN(bll) && bll >= 40;
+  if (isElevated) return { state: 'critical', label: `BLL ${bll} µg/dL — remove from exposure`, cite: REG_CITATIONS.medical };
+  if (s > 365) return { state: 'expired', label: `Overdue by ${s - 365} d`, cite: REG_CITATIONS.medical };
+  if (s > 335) return { state: 'warning', label: `Due in ${365 - s} d`, cite: REG_CITATIONS.medical };
+  return { state: 'ok', label: `Completed ${s} d ago`, cite: REG_CITATIONS.medical };
+}
+
+const STATE_COLORS = {
+  ok:       { bg: '#c6f6d5', fg: '#22543d', icon: '✓' },
+  warning:  { bg: '#fefcbf', fg: '#744210', icon: '⚠' },
+  critical: { bg: '#feebc8', fg: '#7b341e', icon: '⚠' },
+  expired:  { bg: '#fed7d7', fg: '#822727', icon: '✕' },
+  missing:  { bg: '#edf2f7', fg: '#4a5568', icon: '○' },
+  na:       { bg: '#e6fffa', fg: '#234e52', icon: '—' },
+};
+
 export default function UserManagement({ onBack }) {
   const { user: currentUser, verifyAndSetDesignation } = useAuth();
   const [users, setUsers] = useState([]);
@@ -95,6 +177,23 @@ export default function UserManagement({ onBack }) {
       return true;
     });
   }, [users, searchTerm, filterRole, filterStatus]);
+
+  // ─── Regulatory compliance summary across inspectors ─────────
+  const complianceGaps = useMemo(() => {
+    const inspectors = users.filter(u => u.role === 'inspector' && u.active);
+    let expiredOrExpiring = 0;
+    let refresherGaps = 0;
+    let medicalGaps = 0;
+    inspectors.forEach(u => {
+      const l = licenseStatus(u);
+      if (l.state === 'expired' || l.state === 'critical' || l.state === 'missing') expiredOrExpiring++;
+      const r = refresherStatus(u);
+      if (r.state === 'expired' || r.state === 'critical' || r.state === 'missing') refresherGaps++;
+      const m = medicalStatus(u);
+      if (m.state === 'expired' || m.state === 'critical' || m.state === 'missing') medicalGaps++;
+    });
+    return { total: inspectors.length, expiredOrExpiring, refresherGaps, medicalGaps };
+  }, [users]);
 
   // ─── Create User ──────────────────────────────────────────
   async function handleCreate(e) {
@@ -232,6 +331,47 @@ export default function UserManagement({ onBack }) {
 
           {loading && <div style={loadingText}>Loading users...</div>}
 
+          {/* ─── Regulatory Compliance Summary ───────────────────────
+              Shown at top of list; catches any inspector whose license,
+              refresher training, or medical surveillance is missing,
+              expiring, or overdue. Citations: R 325.99308, 40 CFR
+              745.225(c)(2), MIOSHA Part 603 / 29 CFR 1926.62(j). */}
+          {!loading && complianceGaps.total > 0 && (
+            complianceGaps.expiredOrExpiring > 0 ||
+            complianceGaps.refresherGaps > 0 ||
+            complianceGaps.medicalGaps > 0
+          ) && (
+            <div style={{
+              background: '#fffaf0',
+              border: '2px solid #ed8936',
+              borderLeft: '6px solid #c05621',
+              borderRadius: '8px',
+              padding: '12px 16px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: '#7b341e',
+              lineHeight: 1.5,
+            }}>
+              <div style={{ fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}>
+                ⚠ Regulatory Documentation Gaps ({complianceGaps.total} active inspector{complianceGaps.total === 1 ? '' : 's'})
+              </div>
+              <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', fontSize: '12px' }}>
+                {complianceGaps.expiredOrExpiring > 0 && (
+                  <span><strong>{complianceGaps.expiredOrExpiring}</strong> license(s) expired / expiring / not on file</span>
+                )}
+                {complianceGaps.refresherGaps > 0 && (
+                  <span><strong>{complianceGaps.refresherGaps}</strong> refresher training gap(s)</span>
+                )}
+                {complianceGaps.medicalGaps > 0 && (
+                  <span><strong>{complianceGaps.medicalGaps}</strong> medical surveillance gap(s)</span>
+                )}
+              </div>
+              <div style={{ marginTop: '6px', fontSize: '11px', color: '#975a16', fontStyle: 'italic' }}>
+                Cites: Michigan R 325.99308 · 40 CFR 745.225(c)(2) · MIOSHA Part 603 / 29 CFR 1926.62(j)
+              </div>
+            </div>
+          )}
+
           {filteredUsers.map(u => (
             <div key={u.id} style={{ ...cardStyle, opacity: u.active ? 1 : 0.5 }}>
               <div style={{ flex: 1 }}>
@@ -290,6 +430,40 @@ export default function UserManagement({ onBack }) {
                     </select>
                   </div>
                 ) : null}
+
+                {/* ─── Regulatory Compliance Strip (inspectors only) ─── */}
+                {u.role === 'inspector' && (() => {
+                  const l = licenseStatus(u);
+                  const r = refresherStatus(u);
+                  const m = medicalStatus(u);
+                  const renderChip = (label, s) => {
+                    const c = STATE_COLORS[s.state] || STATE_COLORS.missing;
+                    return (
+                      <span
+                        title={`${label}: ${s.label}\n${s.cite}`}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '4px',
+                          fontSize: '10.5px', padding: '2px 8px', borderRadius: '10px',
+                          background: c.bg, color: c.fg, fontWeight: 500,
+                        }}
+                      >
+                        <span style={{ fontSize: '11px' }}>{c.icon}</span>
+                        <strong style={{ fontWeight: 600 }}>{label}:</strong>
+                        <span>{s.label}</span>
+                      </span>
+                    );
+                  };
+                  return (
+                    <div style={{
+                      display: 'flex', gap: '6px', marginTop: '6px',
+                      flexWrap: 'wrap', alignItems: 'center',
+                    }}>
+                      {renderChip('License', l)}
+                      {renderChip('Refresher', r)}
+                      {renderChip('Medical', m)}
+                    </div>
+                  );
+                })()}
 
                 {/* Team Memberships with per-team remove buttons */}
                 {u.teams && u.teams.length > 0 ? (
