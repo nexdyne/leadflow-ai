@@ -6,63 +6,10 @@ const TABS = [
   { key: 'overview', label: 'Overview', icon: '📊' },
   { key: 'users', label: 'Users', icon: '👥' },
   { key: 'organizations', label: 'Organizations', icon: '🏢' },
-  { key: 'projects', label: 'Projects', icon: '🏠' },
   { key: 'revenue', label: 'Revenue', icon: '💰' },
   { key: 'announcements', label: 'Announcements', icon: '📢' },
   { key: 'audit', label: 'Audit Logs', icon: '📋' },
 ];
-
-// Keys that carry protected, secret, or identifying data. When an audit log
-// entry is rendered in the UI, values under these keys are replaced with a
-// redaction marker so a platform admin browsing logs cannot incidentally
-// read child BLLs, inspector credentials, or tokens.
-// References:
-//   HIPAA 45 CFR 164.514(b)   — Safe Harbor de-identification list
-//   MCL 333.5474              — EBL child-identifying info is confidential
-//   NIST SP 800-53 AU-11      — audit records must not retain secrets
-const SENSITIVE_KEYS = [
-  'password', 'pw', 'newpassword', 'newpw', 'currentpassword',
-  'token', 'access_token', 'refresh_token', 'api_key', 'secret',
-  'ssn', 'dob', 'dateofbirth', 'date_of_birth',
-  'bll', 'bloodlead', 'blood_lead_level', 'bloodleadlevel',
-  'childname', 'child_name', 'childdob', 'child_dob',
-  'phone', 'phonenumber', 'phone_number', 'homephone',
-  'homeaddress', 'home_address', 'residentaddress',
-  'licensenumber', 'license_number',
-  'creditcard', 'cardnumber', 'accountnumber',
-];
-
-function redactAuditDetails(details) {
-  if (details == null) return '';
-  try {
-    const obj = typeof details === 'string' ? JSON.parse(details) : details;
-    const walk = (v) => {
-      if (v == null || typeof v !== 'object') return v;
-      if (Array.isArray(v)) return v.map(walk);
-      const out = {};
-      for (const k of Object.keys(v)) {
-        const lower = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (SENSITIVE_KEYS.includes(lower)) {
-          out[k] = '[REDACTED]';
-        } else if (lower === 'email' && typeof v[k] === 'string' && v[k].includes('@')) {
-          // Keep domain for debugging, mask local-part
-          const parts = v[k].split('@');
-          out[k] = `***@${parts[1]}`;
-        } else {
-          out[k] = walk(v[k]);
-        }
-      }
-      return out;
-    };
-    const safe = walk(obj);
-    const str = JSON.stringify(safe);
-    // Hard cap to avoid UI overflow
-    return str.length > 400 ? str.slice(0, 400) + '…' : str;
-  } catch (e) {
-    const s = String(details);
-    return s.length > 400 ? s.slice(0, 400) + '…' : s;
-  }
-}
 
 export default function PlatformAdminDashboard({ onLogout }) {
   const { logout, user, changePassword } = useAuth();
@@ -180,7 +127,6 @@ export default function PlatformAdminDashboard({ onLogout }) {
             {activeTab === 'overview' && <OverviewPanel dashboard={dashboard} onRefresh={loadDashboard} />}
             {activeTab === 'users' && <UsersPanel />}
             {activeTab === 'organizations' && <OrganizationsPanel />}
-            {activeTab === 'projects' && <ProjectsPanel />}
             {activeTab === 'revenue' && <RevenuePanel />}
             {activeTab === 'announcements' && <AnnouncementsPanel />}
             {activeTab === 'audit' && <AuditPanel />}
@@ -240,22 +186,6 @@ export default function PlatformAdminDashboard({ onLogout }) {
 // ═══════════════════════════════════════════════════════════
 
 function OverviewPanel({ dashboard, onRefresh }) {
-  const [analytics, setAnalytics] = useState(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [analyticsError, setAnalyticsError] = useState(null);
-  const [period, setPeriod] = useState(30);
-
-  useEffect(() => {
-    let cancelled = false;
-    setAnalyticsLoading(true);
-    setAnalyticsError(null);
-    apiCall('GET', `/platform/analytics?period=${period}`)
-      .then(data => { if (!cancelled) setAnalytics(data); })
-      .catch(err => { if (!cancelled) setAnalyticsError(err.message || 'Failed to load analytics'); })
-      .finally(() => { if (!cancelled) setAnalyticsLoading(false); });
-    return () => { cancelled = true; };
-  }, [period]);
-
   if (!dashboard) return <div style={{ color: '#94a3b8' }}>No data available</div>;
 
   const stats = [
@@ -266,10 +196,6 @@ function OverviewPanel({ dashboard, onRefresh }) {
     { label: 'Signups (7d)', value: dashboard.recentSignups, color: '#ec4899', sub: 'Last 7 days' },
     { label: 'Active Today', value: dashboard.activeToday, color: '#06b6d4', sub: 'Logged in today' },
   ];
-
-  const signupSeries = buildDailySeries(analytics && analytics.signupTrend, period);
-  const projectSeries = buildDailySeries(analytics && analytics.projectTrend, period);
-  const roleDist = (analytics && analytics.roleDistribution) || [];
 
   return (
     <div>
@@ -285,91 +211,6 @@ function OverviewPanel({ dashboard, onRefresh }) {
             <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>{s.sub}</div>
           </div>
         ))}
-      </div>
-
-      {/* Analytics charts */}
-      <div style={{ ...cardStyle, marginTop: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-          <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', margin: 0 }}>Trends</h3>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {[7, 30, 90].map(p => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                style={{
-                  padding: '4px 10px',
-                  background: period === p ? '#3b82f6' : 'transparent',
-                  color: period === p ? '#fff' : '#94a3b8',
-                  border: '1px solid ' + (period === p ? '#3b82f6' : '#475569'),
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                }}
-              >
-                {p}d
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {analyticsLoading && <div style={{ color: '#64748b', padding: '20px', textAlign: 'center' }}>Loading analytics...</div>}
-        {analyticsError && <div style={{ color: '#fca5a5', padding: '12px', background: '#7f1d1d', borderRadius: '4px' }}>Failed: {analyticsError}</div>}
-
-        {!analyticsLoading && !analyticsError && analytics && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-            <ChartCard
-              title="User Signups"
-              total={signupSeries.total}
-              subtitle={`${signupSeries.total} in last ${period} days · avg ${signupSeries.avg.toFixed(1)}/day`}
-              color="#3b82f6"
-            >
-              <SparkLine data={signupSeries.counts} color="#3b82f6" height={80} />
-              <SeriesXAxis start={signupSeries.firstDate} end={signupSeries.lastDate} />
-            </ChartCard>
-
-            <ChartCard
-              title="New Projects"
-              total={projectSeries.total}
-              subtitle={`${projectSeries.total} in last ${period} days · avg ${projectSeries.avg.toFixed(1)}/day`}
-              color="#f59e0b"
-            >
-              <SparkLine data={projectSeries.counts} color="#f59e0b" height={80} />
-              <SeriesXAxis start={projectSeries.firstDate} end={projectSeries.lastDate} />
-            </ChartCard>
-
-            <ChartCard
-              title="Role Distribution"
-              total={roleDist.reduce((s, r) => s + parseInt(r.count || 0), 0)}
-              subtitle="All active non-admin users"
-              color="#8b5cf6"
-            >
-              <Donut
-                segments={roleDist.map(r => ({
-                  label: r.role || 'unknown',
-                  value: parseInt(r.count || 0),
-                  color: r.role === 'inspector' ? '#3b82f6' : r.role === 'client' ? '#f59e0b' : '#64748b',
-                }))}
-                size={140}
-              />
-            </ChartCard>
-
-            <ChartCard
-              title="Subscription Plans"
-              total={(dashboard.organizations.free || 0) + (dashboard.organizations.pro || 0) + (dashboard.organizations.enterprise || 0)}
-              subtitle={`${dashboard.organizations.pro + dashboard.organizations.enterprise} paid orgs`}
-              color="#10b981"
-            >
-              <Donut
-                segments={[
-                  { label: 'free', value: dashboard.organizations.free || 0, color: '#64748b' },
-                  { label: 'pro', value: dashboard.organizations.pro || 0, color: '#3b82f6' },
-                  { label: 'enterprise', value: dashboard.organizations.enterprise || 0, color: '#8b5cf6' },
-                ]}
-                size={140}
-              />
-            </ChartCard>
-          </div>
-        )}
       </div>
 
       {/* Quick status */}
@@ -392,145 +233,6 @@ function OverviewPanel({ dashboard, onRefresh }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
-//  CHART HELPERS (pure SVG, no external deps)
-// ═══════════════════════════════════════════════════════════
-
-function buildDailySeries(rows, days) {
-  // Normalize backend rows ({date, count}) into a dense daily array covering `days` days.
-  var map = {};
-  var total = 0;
-  (rows || []).forEach(function (r) {
-    var k = r.date ? new Date(r.date).toISOString().slice(0, 10) : null;
-    if (k) {
-      map[k] = parseInt(r.count || 0);
-      total += parseInt(r.count || 0);
-    }
-  });
-  var counts = [];
-  var end = new Date();
-  end.setUTCHours(0, 0, 0, 0);
-  var start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - (days - 1));
-  for (var i = 0; i < days; i++) {
-    var d = new Date(start);
-    d.setUTCDate(start.getUTCDate() + i);
-    var key = d.toISOString().slice(0, 10);
-    counts.push(map[key] || 0);
-  }
-  return {
-    counts: counts,
-    total: total,
-    avg: counts.length ? total / counts.length : 0,
-    firstDate: start,
-    lastDate: end,
-  };
-}
-
-function ChartCard({ title, total, subtitle, color, children }) {
-  return (
-    <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '6px', padding: '14px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
-        <div style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</div>
-        <div style={{ fontSize: '20px', fontWeight: '700', color: color }}>{total}</div>
-      </div>
-      <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '12px' }}>{subtitle}</div>
-      {children}
-    </div>
-  );
-}
-
-function SparkLine({ data, color, height }) {
-  var w = 300;
-  var h = height || 60;
-  if (!data || data.length === 0) {
-    return <div style={{ color: '#64748b', fontSize: '12px', padding: '20px 0', textAlign: 'center' }}>No data</div>;
-  }
-  var maxV = Math.max.apply(null, data.concat([1]));
-  var stepX = data.length > 1 ? w / (data.length - 1) : 0;
-  var points = data.map(function (v, i) {
-    var x = i * stepX;
-    var y = h - (v / maxV) * (h - 4) - 2;
-    return x.toFixed(1) + ',' + y.toFixed(1);
-  }).join(' ');
-  var areaPts = '0,' + h + ' ' + points + ' ' + w + ',' + h;
-  return (
-    <svg viewBox={'0 0 ' + w + ' ' + h} width="100%" height={h} preserveAspectRatio="none" style={{ display: 'block' }}>
-      <polyline points={areaPts} fill={color} fillOpacity="0.15" stroke="none" />
-      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-      {data.map(function (v, i) {
-        if (v === 0) return null;
-        var x = i * stepX;
-        var y = h - (v / maxV) * (h - 4) - 2;
-        return <circle key={i} cx={x} cy={y} r="2" fill={color} />;
-      })}
-    </svg>
-  );
-}
-
-function SeriesXAxis({ start, end }) {
-  var fmt = function (d) { return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); };
-  var mid = new Date((start.getTime() + end.getTime()) / 2);
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
-      <span>{fmt(start)}</span>
-      <span>{fmt(mid)}</span>
-      <span>{fmt(end)}</span>
-    </div>
-  );
-}
-
-function Donut({ segments, size }) {
-  var total = segments.reduce(function (s, seg) { return s + (seg.value || 0); }, 0);
-  var sz = size || 120;
-  var r = sz / 2 - 4;
-  var cx = sz / 2;
-  var cy = sz / 2;
-  if (total === 0) {
-    return <div style={{ color: '#64748b', fontSize: '12px', padding: '20px 0', textAlign: 'center' }}>No data</div>;
-  }
-  var angle = -Math.PI / 2; // start at top
-  var paths = [];
-  segments.forEach(function (seg, idx) {
-    if (!seg.value) return;
-    var sweep = (seg.value / total) * Math.PI * 2;
-    var x1 = cx + r * Math.cos(angle);
-    var y1 = cy + r * Math.sin(angle);
-    var x2 = cx + r * Math.cos(angle + sweep);
-    var y2 = cy + r * Math.sin(angle + sweep);
-    var large = sweep > Math.PI ? 1 : 0;
-    var d = 'M ' + cx + ' ' + cy +
-            ' L ' + x1.toFixed(2) + ' ' + y1.toFixed(2) +
-            ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2) +
-            ' Z';
-    paths.push(<path key={idx} d={d} fill={seg.color} />);
-    angle += sweep;
-  });
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-      <svg width={sz} height={sz} viewBox={'0 0 ' + sz + ' ' + sz} style={{ flexShrink: 0 }}>
-        {paths}
-        <circle cx={cx} cy={cy} r={r * 0.55} fill="#0f172a" />
-        <text x={cx} y={cy - 2} textAnchor="middle" fontSize="16" fontWeight="700" fill="#f1f5f9">{total}</text>
-        <text x={cx} y={cy + 14} textAnchor="middle" fontSize="9" fill="#64748b">TOTAL</text>
-      </svg>
-      <div style={{ flex: 1, fontSize: '11px' }}>
-        {segments.map(function (seg) {
-          var pct = total ? Math.round((seg.value / total) * 100) : 0;
-          return (
-            <div key={seg.label} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-              <span style={{ width: '10px', height: '10px', background: seg.color, borderRadius: '2px', flexShrink: 0 }}></span>
-              <span style={{ color: '#cbd5e1', flex: 1 }}>{seg.label}</span>
-              <span style={{ color: '#f1f5f9', fontWeight: '600' }}>{seg.value}</span>
-              <span style={{ color: '#64748b', minWidth: '32px', textAlign: 'right' }}>{pct}%</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 
 // ═══════════════════════════════════════════════════════════
 //  USERS PANEL
@@ -544,24 +246,8 @@ function UsersPanel() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
-  const [selectedUser, setSelectedUser] = useState(null); // { id, name } when row clicked
-  const [userDetail, setUserDetail] = useState(null); // { user, teams, projects, auditHistory }
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
   const [actionModal, setActionModal] = useState(null); // { type: 'suspend'|'resetPw', userId }
-
-  // Fetch full detail (teams, projects, auditHistory) when a user is selected
-  useEffect(() => {
-    if (!selectedUser) { setUserDetail(null); setDetailError(null); return; }
-    let cancelled = false;
-    setDetailLoading(true);
-    setDetailError(null);
-    apiCall('GET', `/platform/users/${selectedUser.id}`)
-      .then(data => { if (!cancelled) setUserDetail(data); })
-      .catch(err => { if (!cancelled) setDetailError(err.message || 'Failed to load user'); })
-      .finally(() => { if (!cancelled) setDetailLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedUser]);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -612,9 +298,9 @@ function UsersPanel() {
   };
 
   const handleDelete = async (userId) => {
+    if (!confirm('Permanently deactivate this account? This cannot be undone.')) return;
     try {
       await apiCall('DELETE', `/platform/users/${userId}`);
-      setActionModal(null);
       loadUsers();
     } catch (err) {
       alert('Failed to delete: ' + err.message);
@@ -670,13 +356,7 @@ function UsersPanel() {
             ) : users.map(u => (
               <tr key={u.id} style={{ borderBottom: '1px solid #1e293b' }}>
                 <td style={cellStyle}>
-                  <div
-                    onClick={() => setSelectedUser({ id: u.id, name: u.fullName || u.email })}
-                    style={{ fontWeight: '500', color: '#60a5fa', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
-                    title="Click to view full details"
-                  >
-                    {u.fullName || '—'}
-                  </div>
+                  <div style={{ fontWeight: '500', color: '#f1f5f9' }}>{u.fullName || '—'}</div>
                   {u.isPrimaryAdmin && <span style={badgeStyle('#7c3aed')}>Primary Admin</span>}
                 </td>
                 <td style={cellStyle}>{u.email}</td>
@@ -699,26 +379,14 @@ function UsersPanel() {
                 <td style={cellStyle}>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</td>
                 <td style={cellStyle}>{new Date(u.createdAt).toLocaleDateString()}</td>
                 <td style={cellStyle}>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => setSelectedUser({ id: u.id, name: u.fullName || u.email })}
-                      style={actionBtnStyle('#6366f1')}
-                      title="View teams, projects, and audit history"
-                    >
-                      View
-                    </button>
+                  <div style={{ display: 'flex', gap: '6px' }}>
                     {u.suspendedAt ? (
                       <button onClick={() => handleReactivate(u.id)} style={actionBtnStyle('#10b981')}>Reactivate</button>
                     ) : (
                       <button onClick={() => setActionModal({ type: 'suspend', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#f59e0b')}>Suspend</button>
                     )}
                     <button onClick={() => setActionModal({ type: 'resetPw', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#3b82f6')}>Reset PW</button>
-                    <button
-                      onClick={() => setActionModal({ type: 'delete', userId: u.id, userName: u.fullName || u.email, projectCount: u.projectCount })}
-                      style={actionBtnStyle('#ef4444')}
-                    >
-                      Delete
-                    </button>
+                    <button onClick={() => handleDelete(u.id)} style={actionBtnStyle('#ef4444')}>Delete</button>
                   </div>
                 </td>
               </tr>
@@ -749,33 +417,6 @@ function UsersPanel() {
           userName={actionModal.userName}
           onConfirm={(pw) => handleResetPassword(actionModal.userId, pw)}
           onCancel={() => setActionModal(null)}
-        />
-      )}
-      {actionModal && actionModal.type === 'delete' && (
-        <DeleteUserModal
-          userName={actionModal.userName}
-          projectCount={actionModal.projectCount}
-          onConfirm={() => handleDelete(actionModal.userId)}
-          onCancel={() => setActionModal(null)}
-        />
-      )}
-
-      {/* User Detail Modal */}
-      {selectedUser && (
-        <UserDetailModal
-          selectedUser={selectedUser}
-          detail={userDetail}
-          loading={detailLoading}
-          error={detailError}
-          onClose={() => setSelectedUser(null)}
-          onSuspend={(userName) => {
-            setActionModal({ type: 'suspend', userId: selectedUser.id, userName });
-            setSelectedUser(null);
-          }}
-          onResetPw={(userName) => {
-            setActionModal({ type: 'resetPw', userId: selectedUser.id, userName });
-            setSelectedUser(null);
-          }}
         />
       )}
     </div>
@@ -889,36 +530,172 @@ function OrganizationsPanel() {
 function RevenuePanel() {
   const [revenue, setRevenue] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const data = await apiCall('GET', '/platform/revenue');
-        setRevenue(data);
+        if (!cancelled) setRevenue(data);
       } catch (err) {
         console.error('Failed to load revenue:', err);
+        if (!cancelled) setError(err.message || 'Failed to load revenue');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
   }, []);
 
   if (loading) return <div style={{ color: '#64748b', padding: '40px', textAlign: 'center' }}>Loading...</div>;
+  if (error) return <div style={{ color: '#ef4444', padding: '20px' }}>Error: {error}</div>;
   if (!revenue) return <div style={{ color: '#64748b' }}>No revenue data</div>;
+
+  const adminMrr = Number(revenue.mrr) || 0;
+  const stripeMrr = Number(revenue.stripeMrr) || 0;
+  const combinedMrr = Number(revenue.combinedMrr ?? (adminMrr + stripeMrr));
+  const billing = revenue.billing || {};
+  const stripeEnabled = !!billing.stripeEnabled;
+  const failed = billing.failedInvoices || [];
+  const recentStripeInvoices = billing.recentInvoices || [];
 
   return (
     <div>
       <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', marginBottom: '16px' }}>Revenue Dashboard</h2>
 
-      {/* MRR */}
-      <div style={{ ...cardStyle, marginBottom: '24px', textAlign: 'center' }}>
-        <div style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>Monthly Recurring Revenue</div>
-        <div style={{ fontSize: '48px', fontWeight: '800', color: '#10b981' }}>${revenue.mrr.toFixed(2)}</div>
+      {/* MRR tiles — three columns: admin-typed, Stripe-backed, combined */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+        <MrrTile
+          label="Admin-typed MRR"
+          value={adminMrr}
+          accent="#60a5fa"
+          caption="From organizations.monthly_rate"
+        />
+        <MrrTile
+          label="Stripe MRR"
+          value={stripeMrr}
+          accent={stripeEnabled ? '#10b981' : '#64748b'}
+          caption={stripeEnabled ? 'From active + trialing subscriptions' : 'Stripe not configured'}
+        />
+        <MrrTile
+          label="Combined MRR"
+          value={combinedMrr}
+          accent="#a78bfa"
+          caption="What to trust once Stripe is live"
+          highlight
+        />
       </div>
 
-      {/* Plan Breakdown */}
+      {/* Billing health — status + counts */}
+      <div style={{ ...cardStyle, marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <div style={{ fontSize: '13px', color: '#f1f5f9', fontWeight: '600', marginBottom: '4px' }}>
+              Billing integration
+              <span style={{
+                display: 'inline-block', marginLeft: '10px',
+                fontSize: '10px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase',
+                padding: '3px 10px', borderRadius: '10px',
+                background: stripeEnabled ? '#064e3b' : '#374151',
+                color: stripeEnabled ? '#6ee7b7' : '#cbd5e1',
+              }}>
+                {stripeEnabled ? 'Stripe ON' : 'Stripe OFF'}
+              </span>
+            </div>
+            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+              {stripeEnabled
+                ? 'Webhooks feed subscriptions + invoices directly into these numbers.'
+                : 'Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET in Railway to enable self-serve billing.'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '14px' }}>
+            <StatPill label="Stripe customers" value={billing.stripeCustomerCount ?? 0} />
+            <StatPill label="Active subs" value={billing.activeSubscriptionCount ?? 0} />
+            <StatPill label="Failed invoices" value={failed.length} tone={failed.length > 0 ? 'red' : 'neutral'} />
+          </div>
+        </div>
+      </div>
+
+      {/* Failed invoices — only show if any */}
+      {failed.length > 0 && (
+        <div style={{ ...cardStyle, marginBottom: '20px', borderLeft: '3px solid #ef4444' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#fca5a5', marginBottom: '10px' }}>
+            Failed / unpaid invoices ({failed.length})
+          </h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #334155' }}>
+                <th style={adminThStyle}>Org</th>
+                <th style={adminThStyle}>Invoice</th>
+                <th style={{ ...adminThStyle, textAlign: 'right' }}>Amount Due</th>
+                <th style={{ ...adminThStyle, textAlign: 'right' }}>Attempts</th>
+                <th style={adminThStyle}>Failure</th>
+                <th style={adminThStyle}>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {failed.map((inv) => (
+                <tr key={inv.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={adminTdStyle}>{inv.org_name || `Org #${inv.organization_id}`}</td>
+                  <td style={{ ...adminTdStyle, color: '#94a3b8' }}>{inv.number || inv.stripe_invoice_id?.slice(-10) || '—'}</td>
+                  <td style={{ ...adminTdStyle, textAlign: 'right', color: '#fca5a5', fontWeight: '600' }}>
+                    ${((inv.amount_due_cents || 0) / 100).toFixed(2)}
+                  </td>
+                  <td style={{ ...adminTdStyle, textAlign: 'right', color: '#94a3b8' }}>{inv.attempt_count ?? 0}</td>
+                  <td style={{ ...adminTdStyle, color: '#fbbf24', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {inv.last_failure_reason || inv.status}
+                  </td>
+                  <td style={{ ...adminTdStyle, color: '#94a3b8' }}>{fmtAdminDate(inv.invoice_date)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Recent Stripe invoices */}
+      {recentStripeInvoices.length > 0 && (
+        <div style={{ ...cardStyle, marginBottom: '20px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#f1f5f9', marginBottom: '10px' }}>Recent Stripe invoices</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #334155' }}>
+                <th style={adminThStyle}>Org</th>
+                <th style={adminThStyle}>Invoice</th>
+                <th style={{ ...adminThStyle, textAlign: 'right' }}>Amount</th>
+                <th style={adminThStyle}>Status</th>
+                <th style={adminThStyle}>Date</th>
+                <th style={adminThStyle}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentStripeInvoices.map((inv) => (
+                <tr key={inv.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={adminTdStyle}>{inv.org_name || `Org #${inv.organization_id}`}</td>
+                  <td style={{ ...adminTdStyle, color: '#94a3b8' }}>{inv.number || inv.stripe_invoice_id?.slice(-10) || '—'}</td>
+                  <td style={{ ...adminTdStyle, textAlign: 'right', color: '#10b981', fontWeight: '600' }}>
+                    ${(((inv.status === 'paid' ? inv.amount_paid_cents : inv.amount_due_cents) || 0) / 100).toFixed(2)}
+                  </td>
+                  <td style={adminTdStyle}>
+                    <AdminStatusBadge status={inv.status} />
+                  </td>
+                  <td style={{ ...adminTdStyle, color: '#94a3b8' }}>{fmtAdminDate(inv.invoice_date)}</td>
+                  <td style={{ ...adminTdStyle, textAlign: 'right' }}>
+                    {inv.hosted_invoice_url && (
+                      <a href={inv.hosted_invoice_url} target="_blank" rel="noreferrer" style={{ color: '#60a5fa', fontSize: '11px' }}>View</a>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Plan Breakdown (existing — admin-typed plans) */}
       <div style={cardStyle}>
-        <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', marginBottom: '12px' }}>Revenue by Plan</h3>
+        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#f1f5f9', marginBottom: '12px' }}>Revenue by Plan (admin-typed)</h3>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #334155' }}>
@@ -941,6 +718,74 @@ function RevenuePanel() {
     </div>
   );
 }
+
+// ─── Revenue panel helpers ──────────────────────────────────────────
+
+function MrrTile({ label, value, accent, caption, highlight }) {
+  return (
+    <div style={{
+      ...cardStyle,
+      textAlign: 'center',
+      border: highlight ? `1px solid ${accent}` : cardStyle.border,
+      boxShadow: highlight ? `0 0 0 1px ${accent}33 inset` : undefined,
+    }}>
+      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '6px' }}>{label}</div>
+      <div style={{ fontSize: '32px', fontWeight: '800', color: accent }}>${value.toFixed(2)}</div>
+      {caption && <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>{caption}</div>}
+    </div>
+  );
+}
+
+function StatPill({ label, value, tone = 'neutral' }) {
+  const tones = {
+    neutral: { bg: '#1e293b', fg: '#f1f5f9' },
+    red: { bg: '#3f1d1d', fg: '#fca5a5' },
+    green: { bg: '#064e3b', fg: '#6ee7b7' },
+  };
+  const t = tones[tone] || tones.neutral;
+  return (
+    <div style={{ textAlign: 'center', background: t.bg, padding: '8px 14px', borderRadius: '8px', minWidth: '90px' }}>
+      <div style={{ fontSize: '22px', fontWeight: '700', color: t.fg }}>{value}</div>
+      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: '2px' }}>{label}</div>
+    </div>
+  );
+}
+
+function AdminStatusBadge({ status }) {
+  if (!status) return null;
+  const s = String(status).toLowerCase();
+  const tone =
+    s === 'paid' ? { bg: '#064e3b', fg: '#6ee7b7' } :
+    s === 'open' || s === 'past_due' ? { bg: '#78350f', fg: '#fcd34d' } :
+    s === 'uncollectible' || s === 'void' ? { bg: '#3f1d1d', fg: '#fca5a5' } :
+    { bg: '#1e293b', fg: '#cbd5e1' };
+  return (
+    <span style={{
+      display: 'inline-block', fontSize: '10px', fontWeight: '700', letterSpacing: '0.5px',
+      textTransform: 'uppercase', padding: '2px 8px', borderRadius: '10px',
+      background: tone.bg, color: tone.fg,
+    }}>
+      {s.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+function fmtAdminDate(d) {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleDateString(undefined, { year: '2-digit', month: 'short', day: 'numeric' });
+  } catch {
+    return String(d);
+  }
+}
+
+const adminThStyle = {
+  padding: '8px', textAlign: 'left', color: '#94a3b8', fontSize: '11px',
+  textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: '600',
+};
+const adminTdStyle = {
+  padding: '8px', color: '#cbd5e1', fontSize: '12px',
+};
 
 
 // ═══════════════════════════════════════════════════════════
@@ -1073,17 +918,6 @@ function AuditPanel() {
     <div>
       <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', marginBottom: '16px' }}>Audit Logs</h2>
 
-      <div style={{
-        padding: '10px 14px', background: '#1e3a5f', border: '1px solid #3b82f6',
-        borderRadius: '8px', marginBottom: '12px', fontSize: '12px', color: '#bfdbfe',
-        lineHeight: '1.5',
-      }}>
-        <strong style={{ color: '#dbeafe' }}>Privacy note:</strong> sensitive fields
-        (passwords, tokens, child BLL values, child names, resident phone/address,
-        license numbers) are masked in this view per HIPAA 45 CFR 164.514 and
-        MCL 333.5474. The full record is retained server-side under 40 CFR 745.227(h).
-      </div>
-
       <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>{total} log entries</div>
 
       <div style={{ overflowX: 'auto' }}>
@@ -1106,9 +940,8 @@ function AuditPanel() {
                 <td style={cellStyle}>{l.actor_name || l.actor_email || '—'}</td>
                 <td style={cellStyle}><span style={badgeStyle('#7c3aed')}>{l.action}</span></td>
                 <td style={cellStyle}>{l.target_type} #{l.target_id}</td>
-                <td style={{ ...cellStyle, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                    title="Sensitive keys (password, BLL, child name, tokens, phone, address, license #) are masked per HIPAA 45 CFR 164.514 / MCL 333.5474">
-                  {redactAuditDetails(l.details)}
+                <td style={{ ...cellStyle, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {JSON.stringify(l.details)}
                 </td>
               </tr>
             ))}
@@ -1155,136 +988,19 @@ function SuspendModal({ userName, onConfirm, onCancel }) {
 
 function ResetPasswordModal({ userName, onConfirm, onCancel }) {
   const [pw, setPw] = useState('');
-  const [visible, setVisible] = useState(false);
-
-  // Cryptographically strong temporary password (20 chars, mixed case + digits
-  // + specials). Uses window.crypto when available; falls back to Math.random.
-  function generate() {
-    const len = 20;
-    const charset = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*';
-    let out = '';
-    if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
-      const buf = new Uint32Array(len);
-      window.crypto.getRandomValues(buf);
-      for (let i = 0; i < len; i++) out += charset[buf[i] % charset.length];
-    } else {
-      for (let i = 0; i < len; i++) out += charset[Math.floor(Math.random() * charset.length)];
-    }
-    setPw(out);
-    setVisible(true);
-  }
-
   return (
     <div style={overlayStyle}>
       <div style={modalStyle}>
         <h3 style={{ color: '#f1f5f9', marginBottom: '16px' }}>Reset Password for {userName}</h3>
-        <div style={{ color: '#fbbf24', fontSize: '12px', marginBottom: '10px', background: '#422006', padding: '8px 10px', borderRadius: '6px', border: '1px solid #78350f' }}>
-          Communicate this password to the user over a secure channel. The user
-          will be forced to change it on next login (mustChangePassword).
-        </div>
-        <label style={{ color: '#94a3b8', fontSize: '13px' }}>Temporary Password (min 8 chars)</label>
-        <div style={{ display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '4px' }}>
-          <input
-            type={visible ? 'text' : 'password'}
-            value={pw}
-            onChange={e => setPw(e.target.value)}
-            placeholder="Enter or generate..."
-            style={{ ...inputDarkStyle, flex: 1 }}
-          />
-          <button
-            type="button"
-            onClick={() => setVisible(v => !v)}
-            style={{ ...actionBtnStyle('#475569'), whiteSpace: 'nowrap' }}
-          >
-            {visible ? 'Hide' : 'Show'}
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={generate}
-          style={{ ...actionBtnStyle('#334155'), marginBottom: '16px' }}
-        >
-          Generate secure password
-        </button>
+        <label style={{ color: '#94a3b8', fontSize: '13px' }}>New Password (min 8 chars)</label>
+        <input
+          type="text" value={pw} onChange={e => setPw(e.target.value)}
+          placeholder="Enter new password..."
+          style={{ ...inputDarkStyle, marginTop: '4px', marginBottom: '16px' }}
+        />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onCancel} style={actionBtnStyle('#475569')}>Cancel</button>
           <button onClick={() => onConfirm(pw)} disabled={pw.length < 8} style={actionBtnStyle('#3b82f6')}>Reset Password</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// DeleteUserModal — replaces bare confirm() prompt for user deletion.
-// A platform admin deleting a user must not accidentally sever the link
-// between inspector identity and signed inspection reports. 40 CFR 745.227(h)
-// requires the firm to retain inspection records, including the name and
-// certification number of the inspector who performed the work, for 3 years.
-// Deleting the user *record* before those records are migrated could orphan
-// signatures on historical PDFs. Michigan R 325.99207 imposes a parallel
-// 3-year retention on accredited-firm files.
-//
-// This modal:
-//   1. surfaces how many projects are attached to the user (blocking signal)
-//   2. requires the admin to type "DELETE <email>" exactly — not just click
-//   3. cites the retention rule so the admin sees WHY they should hesitate
-function DeleteUserModal({ userName, projectCount, onConfirm, onCancel }) {
-  const [typed, setTyped] = useState('');
-  const expected = `DELETE ${userName || ''}`.trim();
-  const canDelete = typed.trim() === expected && expected.length > 7;
-  const hasProjects = typeof projectCount === 'number' && projectCount > 0;
-
-  return (
-    <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: '520px', border: '1px solid #7f1d1d' }}>
-        <h3 style={{ color: '#fca5a5', marginBottom: '12px' }}>
-          Delete user: {userName}
-        </h3>
-
-        <div style={{ color: '#fecaca', fontSize: '12px', marginBottom: '10px', background: '#450a0a', padding: '10px 12px', borderRadius: '6px', border: '1px solid #7f1d1d', lineHeight: 1.55 }}>
-          <strong style={{ display: 'block', marginBottom: '4px' }}>This is permanent.</strong>
-          Before deleting, make sure all inspection records signed by this
-          user have been exported. <strong>40 CFR 745.227(h)</strong> and
-          <strong> Michigan R 325.99207</strong> require inspector identity
-          and certification to remain tied to reports for 3 years. Deleting
-          the user record does not remove past PDFs, but future exports will
-          show "(deleted user)" in the signature block.
-        </div>
-
-        {hasProjects && (
-          <div style={{ color: '#fbbf24', fontSize: '12px', marginBottom: '10px', background: '#422006', padding: '10px 12px', borderRadius: '6px', border: '1px solid #78350f' }}>
-            <strong>{projectCount}</strong> project{projectCount === 1 ? ' is' : 's are'} currently
-            attached to this user. Consider re-assigning before deletion so the
-            audit trail stays continuous.
-          </div>
-        )}
-
-        <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
-          To confirm, type: <code style={{ color: '#f87171', background: '#1e293b', padding: '2px 6px', borderRadius: '4px' }}>{expected}</code>
-        </label>
-        <input
-          type="text"
-          value={typed}
-          onChange={e => setTyped(e.target.value)}
-          placeholder={expected}
-          autoComplete="off"
-          spellCheck={false}
-          style={{ ...inputDarkStyle, marginBottom: '16px' }}
-        />
-
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <button onClick={onCancel} style={actionBtnStyle('#475569')}>Cancel</button>
-          <button
-            onClick={onConfirm}
-            disabled={!canDelete}
-            style={{
-              ...actionBtnStyle('#dc2626'),
-              opacity: canDelete ? 1 : 0.4,
-              cursor: canDelete ? 'pointer' : 'not-allowed',
-            }}
-          >
-            Permanently delete
-          </button>
         </div>
       </div>
     </div>
@@ -1392,639 +1108,6 @@ function CreateAnnouncementModal({ onSave, onCancel }) {
 // ═══════════════════════════════════════════════════════════
 //  SHARED STYLES
 // ═══════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════
-//  PROJECTS PANEL — admin visibility into all inspections
-// ═══════════════════════════════════════════════════════════
-
-function ProjectsPanel() {
-  const [projects, setProjects] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('active');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [projectDetail, setProjectDetail] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState(null);
-
-  const loadProjects = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ page, limit: 25 });
-      if (search) params.set('search', search);
-      if (statusFilter) params.set('status', statusFilter);
-      if (typeFilter) params.set('inspection_type', typeFilter);
-      const data = await apiCall('GET', `/platform/projects?${params}`);
-      setProjects(data.projects || []);
-      setTotal(data.total || 0);
-    } catch (err) {
-      console.error('Failed to load projects:', err);
-      setProjects([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, statusFilter, typeFilter]);
-
-  useEffect(() => { loadProjects(); }, [loadProjects]);
-
-  // Load detail when a project is selected
-  useEffect(() => {
-    if (!selectedProject) { setProjectDetail(null); setDetailError(null); return; }
-    let cancelled = false;
-    setDetailLoading(true);
-    setDetailError(null);
-    apiCall('GET', `/platform/projects/${selectedProject.id}`)
-      .then(data => { if (!cancelled) setProjectDetail(data); })
-      .catch(err => { if (!cancelled) setDetailError(err.message || 'Failed to load project'); })
-      .finally(() => { if (!cancelled) setDetailLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedProject]);
-
-  // Export current filter to CSV. Pages through all matching projects
-  // (capped at 2000) and assembles a CSV client-side. No new backend endpoint
-  // needed — reuses the paginated list with limit=200.
-  const exportCsv = async () => {
-    setExporting(true);
-    try {
-      const all = [];
-      const pageLimit = 200;
-      const maxPages = 10; // safety cap: 2000 rows
-      let p = 1;
-      while (p <= maxPages) {
-        const params = new URLSearchParams({ page: p, limit: pageLimit });
-        if (search) params.set('search', search);
-        if (statusFilter) params.set('status', statusFilter);
-        if (typeFilter) params.set('inspection_type', typeFilter);
-        const data = await apiCall('GET', `/platform/projects?${params}`);
-        const rows = data.projects || [];
-        all.push(...rows);
-        if (rows.length < pageLimit) break;
-        p += 1;
-      }
-      const header = [
-        'id', 'projectName', 'propertyAddress', 'city', 'stateCode', 'zip',
-        'yearBuilt', 'inspectionType', 'programType', 'status',
-        'inspectorName', 'inspectorEmail', 'orgName', 'orgPlan',
-        'photoCount', 'createdAt', 'updatedAt',
-      ];
-      const escape = (v) => {
-        if (v == null) return '';
-        const s = String(v);
-        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-      };
-      const csv = [
-        header.join(','),
-        ...all.map(row => header.map(h => escape(row[h])).join(',')),
-      ].join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const stamp = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `leadflow-projects-${stamp}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert('Export failed: ' + (err.message || err));
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const totalPages = Math.ceil(total / 25);
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', margin: 0 }}>Projects / Inspections</h2>
-        <button
-          onClick={exportCsv}
-          disabled={exporting || loading || total === 0}
-          style={{
-            padding: '8px 14px',
-            background: (exporting || total === 0) ? '#475569' : '#10b981',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: (exporting || total === 0) ? 'not-allowed' : 'pointer',
-            fontSize: '13px',
-            fontWeight: '600',
-          }}
-          title={total > 2000 ? 'Capped at 2000 rows per export' : 'Download current filter as CSV'}
-        >
-          {exporting ? 'Exporting…' : 'Export CSV'}
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <input
-          type="text" placeholder="Search address, city, or project name..."
-          value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-          style={inputDarkStyle}
-        />
-        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} style={{ ...inputDarkStyle, width: '150px' }}>
-          <option value="active">Active</option>
-          <option value="draft">Drafts</option>
-          <option value="deleted">Deleted</option>
-          <option value="">All</option>
-        </select>
-        <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }} style={{ ...inputDarkStyle, width: '200px' }}>
-          <option value="">All Inspection Types</option>
-          <option value="lbp_inspection">LBP Inspection</option>
-          <option value="risk_assessment">Risk Assessment</option>
-          <option value="clearance">Clearance</option>
-          <option value="clearance_before">Clearance (Before)</option>
-          <option value="clearance_after">Clearance (After)</option>
-          <option value="elevated_blood_lead">EBL Response</option>
-        </select>
-      </div>
-
-      {/* Results count */}
-      <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>
-        {total} project{total !== 1 ? 's' : ''} found
-        {total > 2000 && <span style={{ color: '#f59e0b', marginLeft: '12px' }}>(CSV export will include first 2000)</span>}
-      </div>
-
-      {/* Table */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #334155' }}>
-              {['Property', 'Inspector', 'Organization', 'Type', 'Status', 'Photos', 'Created', 'Actions'].map(h => (
-                <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: '600' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading...</td></tr>
-            ) : projects.length === 0 ? (
-              <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>No projects match the current filter</td></tr>
-            ) : projects.map(p => (
-              <tr key={p.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                <td style={cellStyle}>
-                  <div
-                    onClick={() => setSelectedProject({ id: p.id, address: p.propertyAddress })}
-                    style={{ fontWeight: '500', color: '#60a5fa', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
-                  >
-                    {p.propertyAddress || '(no address)'}
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{p.projectName || ''} {p.yearBuilt ? '· built ' + p.yearBuilt : ''}</div>
-                </td>
-                <td style={cellStyle}>
-                  <div style={{ color: '#cbd5e1' }}>{p.inspectorName || '—'}</div>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{p.inspectorEmail}</div>
-                </td>
-                <td style={cellStyle}>
-                  <div>{p.orgName || '—'}</div>
-                  {p.orgPlan && <span style={badgeStyle(p.orgPlan === 'enterprise' ? '#8b5cf6' : p.orgPlan === 'pro' ? '#3b82f6' : '#64748b')}>{p.orgPlan}</span>}
-                </td>
-                <td style={cellStyle}>
-                  {p.inspectionType ? <span style={badgeStyle('#0ea5e9')}>{p.inspectionType}</span> : '—'}
-                </td>
-                <td style={cellStyle}>
-                  <span style={badgeStyle(
-                    p.status === 'active' ? '#10b981'
-                    : p.status === 'draft' ? '#f59e0b'
-                    : '#64748b'
-                  )}>
-                    {p.status}
-                  </span>
-                </td>
-                <td style={cellStyle}>{p.photoCount}</td>
-                <td style={cellStyle}>{new Date(p.createdAt).toLocaleDateString()}</td>
-                <td style={cellStyle}>
-                  <button
-                    onClick={() => setSelectedProject({ id: p.id, address: p.propertyAddress })}
-                    style={actionBtnStyle('#6366f1')}
-                  >
-                    View
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '16px' }}>
-          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={pageBtnStyle}>Previous</button>
-          <span style={{ color: '#94a3b8', fontSize: '14px', padding: '8px' }}>Page {page} of {totalPages}</span>
-          <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={pageBtnStyle}>Next</button>
-        </div>
-      )}
-
-      {/* Detail modal */}
-      {selectedProject && (
-        <ProjectDetailModal
-          selectedProject={selectedProject}
-          detail={projectDetail}
-          loading={detailLoading}
-          error={detailError}
-          onClose={() => setSelectedProject(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-
-// ═══════════════════════════════════════════════════════════
-//  PROJECT DETAIL MODAL
-// ═══════════════════════════════════════════════════════════
-
-function ProjectDetailModal({ selectedProject, detail, loading, error, onClose }) {
-  const project = detail && detail.project ? detail.project : null;
-  const summary = detail && detail.stateSummary ? detail.stateSummary : {};
-  const photos = detail && Array.isArray(detail.photos) ? detail.photos : [];
-  const audit = detail && Array.isArray(detail.auditHistory) ? detail.auditHistory : [];
-
-  const fmtDate = (d) => d ? new Date(d).toLocaleString() : '—';
-  const fmtDateShort = (d) => d ? new Date(d).toLocaleDateString() : '—';
-
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div
-        style={{ ...modalStyle, maxWidth: '1000px', maxHeight: '90vh', overflow: 'auto' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px' }}>
-          <div>
-            <h3 style={{ color: '#f1f5f9', fontSize: '20px', margin: 0 }}>
-              {selectedProject.address || '(no address)'}
-            </h3>
-            {project && (
-              <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>
-                {project.projectName || ''} · {project.inspectionType || 'inspection'} · by {project.inspectorName || project.inspectorEmail} · {project.orgName || 'no org'}
-              </div>
-            )}
-          </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #475569', color: '#cbd5e1', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Close</button>
-        </div>
-
-        {loading && <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading project detail...</div>}
-        {error && <div style={{ padding: '16px', background: '#7f1d1d', color: '#fecaca', borderRadius: '6px', marginBottom: '16px' }}>Failed to load: {error}</div>}
-
-        {!loading && !error && project && (
-          <>
-            {/* Core property info */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '20px' }}>
-              <InfoCell label="Address" value={project.propertyAddress || '—'} />
-              <InfoCell label="City/State/Zip" value={[project.city, project.stateCode, project.zip].filter(Boolean).join(' · ') || '—'} />
-              <InfoCell label="Year built" value={project.yearBuilt || '—'} highlight={project.yearBuilt && project.yearBuilt < 1978 ? '#ef4444' : undefined} />
-              <InfoCell label="Inspection date" value={fmtDateShort(project.inspectionDate)} />
-              <InfoCell label="Inspection type" value={project.inspectionType || '—'} />
-              <InfoCell label="Program" value={project.programType || '—'} />
-              <InfoCell label="Status" value={project.status} highlight={project.status === 'deleted' ? '#ef4444' : project.status === 'draft' ? '#f59e0b' : undefined} />
-              <InfoCell label="Created" value={fmtDate(project.createdAt)} />
-              <InfoCell label="Updated" value={fmtDate(project.updatedAt)} />
-            </div>
-
-            {/* State summary — distilled flags about what happened */}
-            <DetailSection title="Inspection State">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px', fontSize: '12px' }}>
-                <StateFlag label="Signature captured" value={summary.hasSignature} />
-                <StateFlag label="Samples" value={summary.hasSamples ? summary.hasSamples + ' sample(s)' : null} />
-                <StateFlag label="Resident interview" value={summary.hasInterview} />
-                <StateFlag label="Checklist complete" value={summary.checklistComplete != null ? Math.round(summary.checklistComplete * 100) + '%' : null} />
-                <StateFlag label="Report generated" value={summary.reportGeneratedAt ? fmtDate(summary.reportGeneratedAt) : null} />
-                <StateFlag label="Signed off" value={summary.signedOffAt ? fmtDate(summary.signedOffAt) : null} />
-                <StateFlag label="QA status" value={summary.qaStatus} />
-                <StateFlag label="Photos uploaded" value={photos.length} />
-              </div>
-            </DetailSection>
-
-            {/* Photos */}
-            <DetailSection title={`Photos (${photos.length})`}>
-              {photos.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>No photos attached</div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #334155' }}>
-                      <th style={detailThStyle}>#</th>
-                      <th style={detailThStyle}>Room</th>
-                      <th style={detailThStyle}>Component</th>
-                      <th style={detailThStyle}>Side</th>
-                      <th style={detailThStyle}>Condition</th>
-                      <th style={detailThStyle}>Category</th>
-                      <th style={detailThStyle}>Caption</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {photos.map((ph) => (
-                      <tr key={ph.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                        <td style={detailTdStyle}>{ph.photo_index != null ? ph.photo_index : '—'}</td>
-                        <td style={detailTdStyle}>{ph.room || '—'}</td>
-                        <td style={detailTdStyle}>{ph.component || '—'}</td>
-                        <td style={detailTdStyle}>{ph.side || '—'}</td>
-                        <td style={detailTdStyle}>{ph.condition || '—'}</td>
-                        <td style={detailTdStyle}>{ph.category || '—'}</td>
-                        <td style={{ ...detailTdStyle, maxWidth: '240px', wordBreak: 'break-word' }}>{ph.caption || ''}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </DetailSection>
-
-            {/* Audit trail */}
-            <DetailSection title={`Audit Trail (${audit.length})`}>
-              {audit.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>No recorded events on this project</div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #334155' }}>
-                      <th style={detailThStyle}>When</th>
-                      <th style={detailThStyle}>Action</th>
-                      <th style={detailThStyle}>By</th>
-                      <th style={detailThStyle}>Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {audit.map((a) => {
-                      const redacted = redactAuditDetails(a.details);
-                      return (
-                        <tr key={a.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                          <td style={detailTdStyle}>{fmtDate(a.created_at)}</td>
-                          <td style={detailTdStyle}>{a.action}</td>
-                          <td style={detailTdStyle}>{a.actor_email || '—'}</td>
-                          <td style={{ ...detailTdStyle, fontFamily: 'monospace', fontSize: '11px', maxWidth: '380px', wordBreak: 'break-word' }}>
-                            {redacted ? JSON.stringify(redacted) : '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </DetailSection>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StateFlag({ label, value }) {
-  // Treat booleans, numbers, and strings consistently. null/undefined/false/0 = "No".
-  var present = value !== null && value !== undefined && value !== false && value !== 0 && value !== '';
-  var display;
-  if (value === true) display = 'Yes';
-  else if (value === false || value === null || value === undefined) display = 'No';
-  else display = String(value);
-  return (
-    <div style={{
-      padding: '8px 10px',
-      background: '#0f172a',
-      border: '1px solid ' + (present ? '#10b981' : '#334155'),
-      borderRadius: '4px',
-    }}>
-      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
-      <div style={{ fontSize: '12px', color: present ? '#10b981' : '#64748b', marginTop: '2px', fontWeight: '600' }}>{display}</div>
-    </div>
-  );
-}
-
-
-// ═══════════════════════════════════════════════════════════
-//  USER DETAIL MODAL
-// ═══════════════════════════════════════════════════════════
-
-function UserDetailModal({ selectedUser, detail, loading, error, onClose, onSuspend, onResetPw }) {
-  const user = detail && detail.user ? detail.user : null;
-  const teams = detail && Array.isArray(detail.teams) ? detail.teams : [];
-  const projects = detail && Array.isArray(detail.projects) ? detail.projects : [];
-  const auditHistory = detail && Array.isArray(detail.auditHistory) ? detail.auditHistory : [];
-
-  const fmtDate = (d) => d ? new Date(d).toLocaleString() : '—';
-  const fmtDateShort = (d) => d ? new Date(d).toLocaleDateString() : '—';
-
-  const statusBadge = !user ? null : (
-    user.suspendedAt ? <span style={badgeStyle('#ef4444')}>Suspended</span>
-      : user.active ? <span style={badgeStyle('#10b981')}>Active</span>
-      : <span style={badgeStyle('#64748b')}>Inactive</span>
-  );
-
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div
-        style={{ ...modalStyle, maxWidth: '900px', maxHeight: '90vh', overflow: 'auto' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px' }}>
-          <div>
-            <h3 style={{ color: '#f1f5f9', fontSize: '20px', margin: 0 }}>
-              {selectedUser.name}
-            </h3>
-            {user && (
-              <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>
-                {user.email} · {user.role || '—'} · Joined {fmtDateShort(user.createdAt)} {statusBadge}
-              </div>
-            )}
-          </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #475569', color: '#cbd5e1', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>
-            Close
-          </button>
-        </div>
-
-        {loading && (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading detail...</div>
-        )}
-        {error && (
-          <div style={{ padding: '16px', background: '#7f1d1d', color: '#fecaca', borderRadius: '6px', marginBottom: '16px' }}>
-            Failed to load: {error}
-          </div>
-        )}
-
-        {!loading && !error && user && (
-          <>
-            {/* Core info grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '20px' }}>
-              <InfoCell label="Organization" value={user.orgName || '—'} />
-              <InfoCell label="Plan" value={user.orgPlan || '—'} />
-              <InfoCell label="Phone" value={user.phone || '—'} />
-              <InfoCell label="Last login" value={fmtDate(user.lastLoginAt)} />
-              <InfoCell label="Email verified" value={user.emailVerifiedAt ? fmtDateShort(user.emailVerifiedAt) : 'No'} />
-              <InfoCell label="Must change PW" value={user.mustChangePassword ? 'Yes' : 'No'} />
-              {user.suspendedAt && (
-                <InfoCell label="Suspended" value={fmtDate(user.suspendedAt) + (user.suspensionReason ? ' — ' + user.suspensionReason : '')} highlight="#ef4444" />
-              )}
-              {user.licenseNumber && (
-                <InfoCell label="License #" value={user.licenseNumber + (user.licenseExpiresAt ? ' (exp ' + fmtDateShort(user.licenseExpiresAt) + ')' : '')} />
-              )}
-            </div>
-
-            {/* Teams */}
-            <DetailSection title={`Teams (${teams.length})`}>
-              {teams.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>Not a member of any team</div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #334155' }}>
-                      <th style={detailThStyle}>Team</th>
-                      <th style={detailThStyle}>Role</th>
-                      <th style={detailThStyle}>Joined</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {teams.map((t) => (
-                      <tr key={t.id || t.teamId} style={{ borderBottom: '1px solid #1e293b' }}>
-                        <td style={detailTdStyle}>{t.name}</td>
-                        <td style={detailTdStyle}>
-                          <span style={badgeStyle(t.role === 'lead' ? '#3b82f6' : '#64748b')}>{t.role || 'member'}</span>
-                        </td>
-                        <td style={detailTdStyle}>{fmtDateShort(t.joinedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </DetailSection>
-
-            {/* Projects */}
-            <DetailSection title={`Recent Projects (${projects.length})`}>
-              {projects.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>No projects yet</div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #334155' }}>
-                      <th style={detailThStyle}>Project</th>
-                      <th style={detailThStyle}>Address</th>
-                      <th style={detailThStyle}>Status</th>
-                      <th style={detailThStyle}>Updated</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projects.map((p) => (
-                      <tr key={p.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                        <td style={detailTdStyle}>{p.name || p.projectName || '(untitled)'}</td>
-                        <td style={detailTdStyle}>{p.propertyAddress || p.address || '—'}</td>
-                        <td style={detailTdStyle}>
-                          <span style={badgeStyle(
-                            p.status === 'completed' ? '#10b981'
-                            : p.status === 'in_progress' ? '#3b82f6'
-                            : '#64748b'
-                          )}>
-                            {p.status || 'draft'}
-                          </span>
-                        </td>
-                        <td style={detailTdStyle}>{fmtDateShort(p.updatedAt || p.createdAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </DetailSection>
-
-            {/* Audit history */}
-            <DetailSection title={`Audit History (last ${auditHistory.length})`}>
-              <div style={{ fontSize: '11px', color: '#f59e0b', marginBottom: '8px' }}>
-                PII in audit details is redacted per HIPAA 45 CFR 164.514(b) / NIST SP 800-53 AU-11
-              </div>
-              {auditHistory.length === 0 ? (
-                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>No recorded actions</div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #334155' }}>
-                      <th style={detailThStyle}>When</th>
-                      <th style={detailThStyle}>Action</th>
-                      <th style={detailThStyle}>By</th>
-                      <th style={detailThStyle}>Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditHistory.map((a, i) => {
-                      const redacted = redactAuditDetails(a.details);
-                      return (
-                        <tr key={a.id || i} style={{ borderBottom: '1px solid #1e293b' }}>
-                          <td style={detailTdStyle}>{fmtDate(a.createdAt || a.timestamp)}</td>
-                          <td style={detailTdStyle}>{a.action || a.eventType || '—'}</td>
-                          <td style={detailTdStyle}>{a.actorEmail || a.actorId || 'system'}</td>
-                          <td style={{ ...detailTdStyle, fontFamily: 'monospace', fontSize: '11px', maxWidth: '380px', wordBreak: 'break-word' }}>
-                            {redacted ? JSON.stringify(redacted) : '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </DetailSection>
-
-            {/* Actions footer */}
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid #334155', paddingTop: '12px', marginTop: '12px' }}>
-              <button
-                onClick={() => onResetPw(selectedUser.name)}
-                style={actionBtnStyle('#3b82f6')}
-              >
-                Reset Password
-              </button>
-              {!user.suspendedAt && (
-                <button
-                  onClick={() => onSuspend(selectedUser.name)}
-                  style={actionBtnStyle('#f59e0b')}
-                >
-                  Suspend
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function InfoCell({ label, value, highlight }) {
-  return (
-    <div style={{ background: '#0f172a', border: '1px solid ' + (highlight || '#334155'), padding: '10px 12px', borderRadius: '6px' }}>
-      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
-      <div style={{ fontSize: '13px', color: highlight ? '#fecaca' : '#f1f5f9', marginTop: '4px', wordBreak: 'break-word' }}>{value}</div>
-    </div>
-  );
-}
-
-function DetailSection({ title, children }) {
-  return (
-    <div style={{ marginBottom: '20px' }}>
-      <div style={{ fontSize: '13px', fontWeight: '600', color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', paddingBottom: '4px', borderBottom: '1px solid #334155' }}>
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-const detailThStyle = {
-  padding: '8px 10px',
-  textAlign: 'left',
-  fontSize: '11px',
-  color: '#94a3b8',
-  textTransform: 'uppercase',
-  fontWeight: '600',
-};
-
-const detailTdStyle = {
-  padding: '8px 10px',
-  color: '#cbd5e1',
-  verticalAlign: 'top',
-};
 
 const cardStyle = {
   background: '#1e293b', borderRadius: '12px', padding: '20px',
