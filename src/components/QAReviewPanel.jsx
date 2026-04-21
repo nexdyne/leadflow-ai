@@ -1,27 +1,73 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { runFullQAReview } from '../engine/qaEngine.js';
 
 // ============================================================================
 // QA REVIEW PANEL — Quality Assurance Dashboard for LeadFlow AI
 // Automatically reviews inspection reports for consistency, completeness,
 // and regulatory compliance
+//
+// Persistence / audit-trail design:
+//   Acknowledged (dismissed) QA findings are the inspector's contemporaneous
+//   judgment that a flagged issue is not a real defect. Under 40 CFR 745.227(h)
+//   the inspector must retain the full inspection record (including any
+//   override rationales) for a minimum of 3 years. Storing dismissals in
+//   component-local React state loses that record on refresh/remount. This
+//   panel therefore mirrors dismissals into Redux via SAVE_QA_DISMISSED and
+//   hydrates on mount so the audit trail survives reloads and flows into the
+//   exported report and saved .lf state.
 // ============================================================================
 
 function QAReviewPanel({ state, dispatch }) {
-  const [qaResults, setQaResults] = useState(null);
+  const [qaResults, setQaResults] = useState(state.qaResults || null);
+  const [qaError, setQaError] = useState(null);
   const [expandedSections, setExpandedSections] = useState({
     consistency: false,
     completeness: false,
     language: false
   });
-  const [dismissedFindings, setDismissedFindings] = useState({});
+  // Initialize from redux so dismissed findings survive reload
+  const [dismissedFindings, setDismissedFindings] = useState(state.qaDismissedFindings || {});
+
+  // Hydrate if redux state is updated externally (load saved report, etc.)
+  useEffect(() => {
+    if (state.qaDismissedFindings) {
+      setDismissedFindings(state.qaDismissedFindings);
+    }
+    if (state.qaResults && !qaResults) {
+      setQaResults(state.qaResults);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.qaDismissedFindings, state.qaResults]);
+
+  // Persist dismissals to redux (40 CFR 745.227(h) audit trail)
+  function persistDismissed(nextDismissed, changedId, action) {
+    dispatch({
+      type: 'SAVE_QA_DISMISSED',
+      payload: {
+        dismissed: nextDismissed,
+        lastChange: {
+          findingId: changedId,
+          action,
+          user: (state.currentUser && state.currentUser.name) || state.projectInfo?.inspectorName || 'unknown',
+          timestamp: new Date().toISOString()
+        }
+      }
+    });
+  }
 
   // Acknowledge/dismiss a QA finding with reason
   function handleDismissFinding(findingId, reason) {
-    setDismissedFindings(prev => ({
-      ...prev,
-      [findingId]: { dismissed: true, reason: reason || 'Acknowledged by inspector', timestamp: new Date().toISOString() }
-    }));
+    const record = {
+      dismissed: true,
+      reason: reason || 'Acknowledged by inspector',
+      dismissedBy: (state.currentUser && state.currentUser.name) || state.projectInfo?.inspectorName || 'unknown',
+      timestamp: new Date().toISOString()
+    };
+    setDismissedFindings(prev => {
+      const next = { ...prev, [findingId]: record };
+      persistDismissed(next, findingId, 'dismiss');
+      return next;
+    });
   }
 
   // Restore a dismissed finding
@@ -29,20 +75,31 @@ function QAReviewPanel({ state, dispatch }) {
     setDismissedFindings(prev => {
       const next = { ...prev };
       delete next[findingId];
+      persistDismissed(next, findingId, 'restore');
       return next;
     });
   }
 
-  // Run QA review
+  // Run QA review — guarded so a bad checker rule cannot blow up the UI
   function handleRunQAReview() {
-    const results = runFullQAReview(state);
-    setQaResults(results);
-
-    // Save to state
-    dispatch({
-      type: 'SAVE_QA_RESULTS',
-      payload: results
-    });
+    setQaError(null);
+    try {
+      const results = runFullQAReview(state);
+      if (!results || !results.findings || !results.summary) {
+        throw new Error('QA engine returned malformed results (missing findings/summary).');
+      }
+      setQaResults(results);
+      dispatch({
+        type: 'SAVE_QA_RESULTS',
+        payload: results
+      });
+    } catch (err) {
+      // Log for debugging but also surface to the inspector — they need to
+      // know the QA pass did not complete before they sign the report.
+      // eslint-disable-next-line no-console
+      console.error('[QAReviewPanel] runFullQAReview failed:', err);
+      setQaError(err && err.message ? err.message : String(err));
+    }
   }
 
   // Toggle section expansion
@@ -216,6 +273,27 @@ function QAReviewPanel({ state, dispatch }) {
           Run Full QA Review
         </button>
       </div>
+
+      {/* QA engine error banner — fail-soft so the inspector is not silently
+          locked out, and still knows the QA pass did not run to completion. */}
+      {qaError && (
+        <div className="mb-6 p-4 bg-red-50 border-2 border-red-300 rounded-lg">
+          <div className="flex items-start gap-3">
+            <span className="text-red-700 text-xl font-bold">✕</span>
+            <div className="flex-grow">
+              <h4 className="font-semibold text-red-900 mb-1">QA review did not complete</h4>
+              <p className="text-sm text-red-700 mb-2">
+                The QA engine raised an error. Do not sign this report until the
+                QA review runs successfully (40 CFR 745.227(h) requires a complete
+                inspection record).
+              </p>
+              <p className="text-xs font-mono text-red-600 bg-red-100 p-2 rounded">
+                {qaError}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Results */}
       {qaResults && (
