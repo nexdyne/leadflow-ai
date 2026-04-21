@@ -20,6 +20,7 @@ import AIPhotoTagger from './components/AIPhotoTagger';
 import LabPDFImport from './components/LabPDFImport';
 import OfflineStatusBar from './components/OfflineStatusBar';
 import { AuthProvider, useAuth } from './hooks/useAuth';
+import { useProject } from './hooks/useProject.js';
 import LoginPage from './components/auth/LoginPage';
 import PlatformAdminLoginPage from './components/auth/PlatformAdminLoginPage';
 import ProjectDashboard from './components/ProjectDashboard';
@@ -103,6 +104,12 @@ function shouldShowRegister() {
 
 function AppContent() {
   const { user, isAuthenticated, loading: authLoading, logout, changePassword, currentTeam } = useAuth();
+  // C46: share a single useProject instance across the editor surface so
+  // Save Progress + Save & Next Tab can persist to the cloud the same way
+  // ProjectDashboard already does. handleOpenProject below wires
+  // setCurrentProjectId so saves UPDATE the row that was opened instead
+  // of inserting a duplicate.
+  const { saveProject, currentProjectId: cloudProjectId, setCurrentProjectId } = useProject();
   const [state, dispatch] = useReducer(appReducer, initialState);
   const [activeTab, setActiveTab] = useState(0);
   const [currentView, setCurrentView] = useState('dashboard'); // FIX 5: dashboard | teamMgmt | userMgmt | clientPanel | inspection | billing
@@ -217,18 +224,31 @@ function AppContent() {
     }
   };
 
-  const handleOpenProject = (stateData) => {
+  // C46: handleOpenProject now receives the cloud project id so follow-up
+  // manual/auto saves UPDATE that row instead of creating a duplicate.
+  // Old callers that pass only stateData still work — the id is optional.
+  const handleOpenProject = (stateData, projectId = null) => {
     dispatch({ type: 'LOAD_INSPECTION', payload: stateData });
     setActiveTab(0);
     setCurrentView('inspection'); // FIX 5
+    if (projectId) setCurrentProjectId(projectId);
+    else setCurrentProjectId(null);
   };
 
   const handleNewProject = () => {
     dispatch({ type: 'RESET' });
     setActiveTab(0);
     setCurrentView('inspection'); // FIX 5
+    // C46: new project — clear any prior cloud id so the first save INSERTs.
+    setCurrentProjectId(null);
   };
 
+  // C46: Save to BOTH the local IndexedDB and the cloud projects table.
+  // Previously this only touched IndexedDB, so the inspector's project
+  // never showed up in "My Projects" and stayed stuck as a local draft.
+  // Local save is attempted first and treated as the source of truth for
+  // the UI's "Saved" indicator; cloud save failure is surfaced separately
+  // without discarding local progress.
   const handleManualSave = async () => {
     if (!state._inspectionId) {
       const newId = 'insp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -239,18 +259,46 @@ function AppContent() {
       // Will re-trigger via useEffect once ID is set
       return;
     }
+
+    setSaveStatus('saving');
+    isMetaUpdateRef.current = true;
+
+    // 1) Local IndexedDB save — never blocks on network.
+    let localOk = false;
     try {
-      setSaveStatus('saving');
-      isMetaUpdateRef.current = true;
       await saveInspection(state._inspectionId, state);
+      localOk = true;
       dispatch({ type: 'SET_INSPECTION_META', payload: { _lastSaved: new Date().toISOString() }});
+    } catch (err) {
+      console.error('Local manual save failed:', err);
+      setSaveStatus('error');
+      return;
+    }
+
+    // 2) Cloud save — only attempted when the user is signed in. Offline /
+    //    unauth states fall back to "saved locally" so work is never lost.
+    if (isAuthenticated) {
+      try {
+        const pi = state.projectInfo || {};
+        const cloudName = (pi.projectName && pi.projectName.trim())
+          || (pi.propertyAddress && pi.propertyAddress.trim())
+          || 'Untitled Project';
+        const teamId = (currentTeam && currentTeam.id) ? currentTeam.id : null;
+        await saveProject(cloudName, state, true, teamId);
+      } catch (err) {
+        console.error('Cloud save failed (local save succeeded):', err);
+        // Local save is complete — indicate partial success to the user.
+        setSaveStatus('error');
+        setShowSaveToast(false);
+        return;
+      }
+    }
+
+    if (localOk) {
       setSaveStatus('saved');
       setShowSaveToast(true);
       if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
       saveToastTimer.current = setTimeout(() => setShowSaveToast(false), 3000);
-    } catch (err) {
-      console.error('Manual save failed:', err);
-      setSaveStatus('error');
     }
   };
 
@@ -259,6 +307,20 @@ function AppContent() {
       try {
         setSaveStatus('saving');
         await saveInspection(state._inspectionId, state);
+        // C46: also flush to cloud on dashboard exit so the newly-typed
+        // project name / fields are visible in My Projects immediately.
+        if (isAuthenticated) {
+          try {
+            const pi = state.projectInfo || {};
+            const cloudName = (pi.projectName && pi.projectName.trim())
+              || (pi.propertyAddress && pi.propertyAddress.trim())
+              || 'Untitled Project';
+            const teamId = (currentTeam && currentTeam.id) ? currentTeam.id : null;
+            await saveProject(cloudName, state, true, teamId);
+          } catch (err) {
+            console.error('Cloud save on dashboard exit failed:', err);
+          }
+        }
         setSaveStatus('saved');
       } catch (err) {
         console.error('Failed to save before dashboard:', err);
@@ -782,18 +844,39 @@ function AppContent() {
                 <div className="flex gap-3">
                   {activeTab > 0 && (
                     <button
-                      onClick={() => { handleManualSave(); setActiveTab(activeTab - 1); }}
-                      className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 font-medium transition"
+                      onClick={async () => {
+                        // C46: await the save so the project is actually
+                        // persisted (local + cloud) before tab nav. The
+                        // old fire-and-forget flow let users switch tabs
+                        // while the project was still an unsaved draft.
+                        try { await handleManualSave(); } catch (_) { /* surfaced via saveStatus */ }
+                        setActiveTab(activeTab - 1);
+                      }}
+                      disabled={saveStatus === 'saving'}
+                      className={`px-4 py-2 rounded-lg font-medium transition ${
+                        saveStatus === 'saving'
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      }`}
                     >
                       &larr; Previous Tab
                     </button>
                   )}
                   {activeTab < tabs.length - 1 && (
                     <button
-                      onClick={() => { handleManualSave(); setActiveTab(activeTab + 1); }}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition"
+                      onClick={async () => {
+                        // C46: await save before advancing. See above.
+                        try { await handleManualSave(); } catch (_) { /* surfaced via saveStatus */ }
+                        setActiveTab(activeTab + 1);
+                      }}
+                      disabled={saveStatus === 'saving'}
+                      className={`px-4 py-2 rounded-lg font-medium transition text-white ${
+                        saveStatus === 'saving'
+                          ? 'bg-gray-400 cursor-not-allowed'
+                          : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
                     >
-                      Save &amp; Next Tab &rarr;
+                      {saveStatus === 'saving' ? 'Saving…' : 'Save \u0026 Next Tab \u2192'}
                     </button>
                   )}
                 </div>

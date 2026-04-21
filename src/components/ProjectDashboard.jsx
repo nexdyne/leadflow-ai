@@ -93,7 +93,12 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
     setSaving(true);
     setSaveMsg('');
     try {
-      const name = currentState.projectInfo?.propertyAddress || 'Untitled Project';
+      // C46: prefer inspector-assigned projectName, then property address,
+      // then a generic fallback. Matches the priority shown in the list.
+      const pi = currentState.projectInfo || {};
+      const name = (pi.projectName && pi.projectName.trim())
+        || (pi.propertyAddress && pi.propertyAddress.trim())
+        || 'Untitled Project';
       const teamId = (viewMode === 'team' && currentTeam) ? currentTeam.id : null;
       await saveProject(name, currentState, true, teamId);
       setSaveMsg('Project saved successfully!');
@@ -113,10 +118,32 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
   async function handleOpen(projectId) {
     try {
       const data = await loadProject(projectId);
-      // data now returns full project object with stateData
-      onOpenProject(data.stateData || data);
+      // C46: pass projectId up so subsequent saves UPDATE this row
+      // instead of inserting a duplicate. data.stateData may or may not
+      // carry the cloud id (legacy rows don't), so we pass it explicitly.
+      onOpenProject(data.stateData || data, projectId);
     } catch (err) {
       alert('Failed to load project: ' + err.message);
+    }
+  }
+
+  // C46: in-place rename from the My Projects list. Uses a browser
+  // prompt() for now (UI polish pass will replace with a proper modal).
+  // The backend PATCH-style handler accepts projectName-only updates, so
+  // we don't need the project's full stateData here.
+  async function handleRename(p) {
+    const current = p.projectName || p.propertyAddress || '';
+    const next = window.prompt('Rename this project', current);
+    if (next === null) return; // cancelled
+    const trimmed = next.trim();
+    if (!trimmed) return; // don't allow blanking the name
+    if (trimmed === current) return; // no-op
+    try {
+      await apiCall('PUT', `/projects/${p.id}`, { projectName: trimmed });
+      if (viewMode === 'team' && currentTeam) loadProjects('', currentTeam.id);
+      else loadProjects('');
+    } catch (err) {
+      alert('Failed to rename project: ' + err.message);
     }
   }
 
@@ -531,7 +558,10 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
               >
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: '600', color: '#2d3748' }}>
-                    {p.propertyAddress || p.projectName}
+                    {/* C46: prefer inspector-assigned projectName, then
+                        property address, then a generic placeholder so
+                        no project ever renders as just "undefined". */}
+                    {p.projectName || p.propertyAddress || 'Untitled Project'}
                     {p.isDraft && (
                       <span style={{
                         fontSize: '11px', background: '#fefcbf', color: '#975a16',
@@ -545,7 +575,13 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
                       }}>by {p.ownerName}</span>
                     )}
                   </div>
+                  {/* C46: when the name differs from the address, show the
+                      address on the secondary line so inspectors can still
+                      see which property a renamed project belongs to. */}
                   <div style={{ fontSize: '13px', color: '#718096', marginTop: '2px' }}>
+                    {p.projectName && p.propertyAddress && p.propertyAddress !== p.projectName && (
+                      <span style={{ color: '#4a5568' }}>{p.propertyAddress}{' | '}</span>
+                    )}
                     {p.city}{p.city && p.stateCode ? ', ' : ''}{p.stateCode}
                     {p.inspectionType && ` | ${p.inspectionType}`}
                     {p.programType && ` | ${p.programType}`}
@@ -555,9 +591,11 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
                 </div>
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <button onClick={() => handleOpen(p.id)} style={btnSmall}>Open</button>
+                  {/* C46: in-place rename */}
+                  <button onClick={() => handleRename(p)} style={btnSmall}>Rename</button>
                   <button
                     onClick={() => {
-                      setShareModal({ projectId: p.id, projectName: p.propertyAddress || p.projectName });
+                      setShareModal({ projectId: p.id, projectName: p.projectName || p.propertyAddress || 'Untitled Project' });
                       setShareEmail(''); setShareMsg(''); setShareError(''); // FIX 7: Clear stale error/message
                     }}
                     style={{ ...btnSmall, color: '#2c5282' }}
