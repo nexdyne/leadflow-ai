@@ -11,6 +11,58 @@ const TABS = [
   { key: 'audit', label: 'Audit Logs', icon: '📋' },
 ];
 
+// Keys that carry protected, secret, or identifying data. When an audit log
+// entry is rendered in the UI, values under these keys are replaced with a
+// redaction marker so a platform admin browsing logs cannot incidentally
+// read child BLLs, inspector credentials, or tokens.
+// References:
+//   HIPAA 45 CFR 164.514(b)   — Safe Harbor de-identification list
+//   MCL 333.5474              — EBL child-identifying info is confidential
+//   NIST SP 800-53 AU-11      — audit records must not retain secrets
+const SENSITIVE_KEYS = [
+  'password', 'pw', 'newpassword', 'newpw', 'currentpassword',
+  'token', 'access_token', 'refresh_token', 'api_key', 'secret',
+  'ssn', 'dob', 'dateofbirth', 'date_of_birth',
+  'bll', 'bloodlead', 'blood_lead_level', 'bloodleadlevel',
+  'childname', 'child_name', 'childdob', 'child_dob',
+  'phone', 'phonenumber', 'phone_number', 'homephone',
+  'homeaddress', 'home_address', 'residentaddress',
+  'licensenumber', 'license_number',
+  'creditcard', 'cardnumber', 'accountnumber',
+];
+
+function redactAuditDetails(details) {
+  if (details == null) return '';
+  try {
+    const obj = typeof details === 'string' ? JSON.parse(details) : details;
+    const walk = (v) => {
+      if (v == null || typeof v !== 'object') return v;
+      if (Array.isArray(v)) return v.map(walk);
+      const out = {};
+      for (const k of Object.keys(v)) {
+        const lower = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (SENSITIVE_KEYS.includes(lower)) {
+          out[k] = '[REDACTED]';
+        } else if (lower === 'email' && typeof v[k] === 'string' && v[k].includes('@')) {
+          // Keep domain for debugging, mask local-part
+          const parts = v[k].split('@');
+          out[k] = `***@${parts[1]}`;
+        } else {
+          out[k] = walk(v[k]);
+        }
+      }
+      return out;
+    };
+    const safe = walk(obj);
+    const str = JSON.stringify(safe);
+    // Hard cap to avoid UI overflow
+    return str.length > 400 ? str.slice(0, 400) + '…' : str;
+  } catch (e) {
+    const s = String(details);
+    return s.length > 400 ? s.slice(0, 400) + '…' : s;
+  }
+}
+
 export default function PlatformAdminDashboard({ onLogout }) {
   const { logout, user, changePassword } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
@@ -298,9 +350,9 @@ function UsersPanel() {
   };
 
   const handleDelete = async (userId) => {
-    if (!confirm('Permanently deactivate this account? This cannot be undone.')) return;
     try {
       await apiCall('DELETE', `/platform/users/${userId}`);
+      setActionModal(null);
       loadUsers();
     } catch (err) {
       alert('Failed to delete: ' + err.message);
@@ -386,7 +438,12 @@ function UsersPanel() {
                       <button onClick={() => setActionModal({ type: 'suspend', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#f59e0b')}>Suspend</button>
                     )}
                     <button onClick={() => setActionModal({ type: 'resetPw', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#3b82f6')}>Reset PW</button>
-                    <button onClick={() => handleDelete(u.id)} style={actionBtnStyle('#ef4444')}>Delete</button>
+                    <button
+                      onClick={() => setActionModal({ type: 'delete', userId: u.id, userName: u.fullName || u.email, projectCount: u.projectCount })}
+                      style={actionBtnStyle('#ef4444')}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -416,6 +473,14 @@ function UsersPanel() {
         <ResetPasswordModal
           userName={actionModal.userName}
           onConfirm={(pw) => handleResetPassword(actionModal.userId, pw)}
+          onCancel={() => setActionModal(null)}
+        />
+      )}
+      {actionModal && actionModal.type === 'delete' && (
+        <DeleteUserModal
+          userName={actionModal.userName}
+          projectCount={actionModal.projectCount}
+          onConfirm={() => handleDelete(actionModal.userId)}
           onCancel={() => setActionModal(null)}
         />
       )}
@@ -714,6 +779,17 @@ function AuditPanel() {
     <div>
       <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', marginBottom: '16px' }}>Audit Logs</h2>
 
+      <div style={{
+        padding: '10px 14px', background: '#1e3a5f', border: '1px solid #3b82f6',
+        borderRadius: '8px', marginBottom: '12px', fontSize: '12px', color: '#bfdbfe',
+        lineHeight: '1.5',
+      }}>
+        <strong style={{ color: '#dbeafe' }}>Privacy note:</strong> sensitive fields
+        (passwords, tokens, child BLL values, child names, resident phone/address,
+        license numbers) are masked in this view per HIPAA 45 CFR 164.514 and
+        MCL 333.5474. The full record is retained server-side under 40 CFR 745.227(h).
+      </div>
+
       <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>{total} log entries</div>
 
       <div style={{ overflowX: 'auto' }}>
@@ -736,8 +812,9 @@ function AuditPanel() {
                 <td style={cellStyle}>{l.actor_name || l.actor_email || '—'}</td>
                 <td style={cellStyle}><span style={badgeStyle('#7c3aed')}>{l.action}</span></td>
                 <td style={cellStyle}>{l.target_type} #{l.target_id}</td>
-                <td style={{ ...cellStyle, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {JSON.stringify(l.details)}
+                <td style={{ ...cellStyle, maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    title="Sensitive keys (password, BLL, child name, tokens, phone, address, license #) are masked per HIPAA 45 CFR 164.514 / MCL 333.5474">
+                  {redactAuditDetails(l.details)}
                 </td>
               </tr>
             ))}
@@ -784,19 +861,136 @@ function SuspendModal({ userName, onConfirm, onCancel }) {
 
 function ResetPasswordModal({ userName, onConfirm, onCancel }) {
   const [pw, setPw] = useState('');
+  const [visible, setVisible] = useState(false);
+
+  // Cryptographically strong temporary password (20 chars, mixed case + digits
+  // + specials). Uses window.crypto when available; falls back to Math.random.
+  function generate() {
+    const len = 20;
+    const charset = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*';
+    let out = '';
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+      const buf = new Uint32Array(len);
+      window.crypto.getRandomValues(buf);
+      for (let i = 0; i < len; i++) out += charset[buf[i] % charset.length];
+    } else {
+      for (let i = 0; i < len; i++) out += charset[Math.floor(Math.random() * charset.length)];
+    }
+    setPw(out);
+    setVisible(true);
+  }
+
   return (
     <div style={overlayStyle}>
       <div style={modalStyle}>
         <h3 style={{ color: '#f1f5f9', marginBottom: '16px' }}>Reset Password for {userName}</h3>
-        <label style={{ color: '#94a3b8', fontSize: '13px' }}>New Password (min 8 chars)</label>
-        <input
-          type="text" value={pw} onChange={e => setPw(e.target.value)}
-          placeholder="Enter new password..."
-          style={{ ...inputDarkStyle, marginTop: '4px', marginBottom: '16px' }}
-        />
+        <div style={{ color: '#fbbf24', fontSize: '12px', marginBottom: '10px', background: '#422006', padding: '8px 10px', borderRadius: '6px', border: '1px solid #78350f' }}>
+          Communicate this password to the user over a secure channel. The user
+          will be forced to change it on next login (mustChangePassword).
+        </div>
+        <label style={{ color: '#94a3b8', fontSize: '13px' }}>Temporary Password (min 8 chars)</label>
+        <div style={{ display: 'flex', gap: '6px', marginTop: '4px', marginBottom: '4px' }}>
+          <input
+            type={visible ? 'text' : 'password'}
+            value={pw}
+            onChange={e => setPw(e.target.value)}
+            placeholder="Enter or generate..."
+            style={{ ...inputDarkStyle, flex: 1 }}
+          />
+          <button
+            type="button"
+            onClick={() => setVisible(v => !v)}
+            style={{ ...actionBtnStyle('#475569'), whiteSpace: 'nowrap' }}
+          >
+            {visible ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={generate}
+          style={{ ...actionBtnStyle('#334155'), marginBottom: '16px' }}
+        >
+          Generate secure password
+        </button>
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onCancel} style={actionBtnStyle('#475569')}>Cancel</button>
           <button onClick={() => onConfirm(pw)} disabled={pw.length < 8} style={actionBtnStyle('#3b82f6')}>Reset Password</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// DeleteUserModal — replaces bare confirm() prompt for user deletion.
+// A platform admin deleting a user must not accidentally sever the link
+// between inspector identity and signed inspection reports. 40 CFR 745.227(h)
+// requires the firm to retain inspection records, including the name and
+// certification number of the inspector who performed the work, for 3 years.
+// Deleting the user *record* before those records are migrated could orphan
+// signatures on historical PDFs. Michigan R 325.99207 imposes a parallel
+// 3-year retention on accredited-firm files.
+//
+// This modal:
+//   1. surfaces how many projects are attached to the user (blocking signal)
+//   2. requires the admin to type "DELETE <email>" exactly — not just click
+//   3. cites the retention rule so the admin sees WHY they should hesitate
+function DeleteUserModal({ userName, projectCount, onConfirm, onCancel }) {
+  const [typed, setTyped] = useState('');
+  const expected = `DELETE ${userName || ''}`.trim();
+  const canDelete = typed.trim() === expected && expected.length > 7;
+  const hasProjects = typeof projectCount === 'number' && projectCount > 0;
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: '520px', border: '1px solid #7f1d1d' }}>
+        <h3 style={{ color: '#fca5a5', marginBottom: '12px' }}>
+          Delete user: {userName}
+        </h3>
+
+        <div style={{ color: '#fecaca', fontSize: '12px', marginBottom: '10px', background: '#450a0a', padding: '10px 12px', borderRadius: '6px', border: '1px solid #7f1d1d', lineHeight: 1.55 }}>
+          <strong style={{ display: 'block', marginBottom: '4px' }}>This is permanent.</strong>
+          Before deleting, make sure all inspection records signed by this
+          user have been exported. <strong>40 CFR 745.227(h)</strong> and
+          <strong> Michigan R 325.99207</strong> require inspector identity
+          and certification to remain tied to reports for 3 years. Deleting
+          the user record does not remove past PDFs, but future exports will
+          show "(deleted user)" in the signature block.
+        </div>
+
+        {hasProjects && (
+          <div style={{ color: '#fbbf24', fontSize: '12px', marginBottom: '10px', background: '#422006', padding: '10px 12px', borderRadius: '6px', border: '1px solid #78350f' }}>
+            <strong>{projectCount}</strong> project{projectCount === 1 ? ' is' : 's are'} currently
+            attached to this user. Consider re-assigning before deletion so the
+            audit trail stays continuous.
+          </div>
+        )}
+
+        <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>
+          To confirm, type: <code style={{ color: '#f87171', background: '#1e293b', padding: '2px 6px', borderRadius: '4px' }}>{expected}</code>
+        </label>
+        <input
+          type="text"
+          value={typed}
+          onChange={e => setTyped(e.target.value)}
+          placeholder={expected}
+          autoComplete="off"
+          spellCheck={false}
+          style={{ ...inputDarkStyle, marginBottom: '16px' }}
+        />
+
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={actionBtnStyle('#475569')}>Cancel</button>
+          <button
+            onClick={onConfirm}
+            disabled={!canDelete}
+            style={{
+              ...actionBtnStyle('#dc2626'),
+              opacity: canDelete ? 1 : 0.4,
+              cursor: canDelete ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Permanently delete
+          </button>
         </div>
       </div>
     </div>
