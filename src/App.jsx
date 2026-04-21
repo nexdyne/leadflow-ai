@@ -35,6 +35,7 @@ import AssumedPositivesTab from './components/AssumedPositivesTab';
 import InspectorClientPanel from './components/InspectorClientPanel';
 import PlatformAdminDashboard from './components/PlatformAdminDashboard';
 import AnnouncementBanner from './components/AnnouncementBanner';
+import BillingTab from './components/BillingTab';
 import ForgotPasswordPage from './components/auth/ForgotPasswordPage';
 import ResetPasswordPage from './components/auth/ResetPasswordPage';
 import VerifyEmailPage from './components/auth/VerifyEmailPage';
@@ -89,7 +90,7 @@ function AppContent() {
   const { user, isAuthenticated, loading: authLoading, logout, changePassword, currentTeam } = useAuth();
   const [state, dispatch] = useReducer(appReducer, initialState);
   const [activeTab, setActiveTab] = useState(0);
-  const [currentView, setCurrentView] = useState('dashboard'); // FIX 5: dashboard | teamMgmt | userMgmt | clientPanel | inspection
+  const [currentView, setCurrentView] = useState('dashboard'); // FIX 5: dashboard | teamMgmt | userMgmt | clientPanel | inspection | billing
   const [inviteToken, setInviteToken] = useState(null);
   const [portalMode, setPortalMode] = useState(false);
   const [platformLoginMode, setPlatformLoginMode] = useState(false);
@@ -542,6 +543,13 @@ function AppContent() {
           </div>
         )}
 
+        {/* Billing & Subscription — C29 */}
+        {currentView === 'billing' && (
+          <div className="mb-6">
+            <BillingTab onBack={() => { setCurrentView('dashboard'); }} />
+          </div>
+        )}
+
         {/* Project Dashboard (when visible) */}
         {currentView === 'dashboard' && (
           <div className="mb-6">
@@ -551,6 +559,7 @@ function AppContent() {
               onManageTeams={() => { setCurrentView('teamMgmt'); }}
               onManageUsers={() => { setCurrentView('userMgmt'); }}
               onManageClients={() => { setCurrentView('clientPanel'); }}
+              onOpenBilling={() => { setCurrentView('billing'); }}
               currentState={state}
               unreadNotifCount={unreadNotifCount}
             />

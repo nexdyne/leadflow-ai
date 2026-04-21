@@ -26,22 +26,7 @@ const DESIGNATION_OPTIONS = [
   { key: 'project_designer', label: 'Lead Project Designer' },
 ];
 
-// License expiration status computed from user.licenseExpirationDate
-// (optional field — absence is treated as 'unknown', not critical)
-// Federal: 40 CFR 745.226 = 3-yr cycle.  Michigan: R 325.99308 = annual renewal.
-function licenseStatus(user) {
-  const raw = user && (user.licenseExpirationDate || user.certExpiration);
-  if (!raw) return { state: 'unknown', label: 'Expiration on file?', cite: '40 CFR 745.226 / R 325.99308' };
-  const exp = new Date(raw);
-  if (isNaN(exp.getTime())) return { state: 'unknown', label: 'Expiration unparseable', cite: '' };
-  const days = Math.floor((exp - new Date()) / (1000 * 60 * 60 * 24));
-  if (days < 0) return { state: 'expired', label: `Expired ${Math.abs(days)}d ago`, cite: 'Cannot perform regulated work — 40 CFR 745.226' };
-  if (days <= 30) return { state: 'critical', label: `Expires in ${days}d`, cite: 'Schedule refresher — 40 CFR 745.225(c)(2)' };
-  if (days <= 90) return { state: 'warning', label: `Expires in ${days}d`, cite: 'Plan renewal soon' };
-  return { state: 'ok', label: `Valid ${days}d`, cite: '' };
-}
-
-export default function ProjectDashboard({ onOpenProject, onNewProject, onManageTeams, onManageUsers, onManageClients, currentState, unreadNotifCount = 0 }) {
+export default function ProjectDashboard({ onOpenProject, onNewProject, onManageTeams, onManageUsers, onManageClients, onOpenBilling, currentState, unreadNotifCount = 0 }) {
   const { user, logout, currentTeam, teamCount, refreshProfile, updateDesignation, verifyAndSetDesignation } = useAuth();
   const { projects, loading, error, loadProjects, saveProject, loadProject, deleteProject, currentProjectId } = useProject();
   const { teams, loadTeams, switchTeam } = useTeam();
@@ -80,15 +65,7 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
       setLoadingOffline(true);
       listInspections()
         .then(inspections => {
-          // Sort by most-recently-saved first so the inspector sees the active
-          // record at the top. Fall back to id comparison if timestamps are missing.
-          const sorted = [...(inspections || [])].sort((a, b) => {
-            const ta = a && a.lastSaved ? new Date(a.lastSaved).getTime() : 0;
-            const tb = b && b.lastSaved ? new Date(b.lastSaved).getTime() : 0;
-            if (tb !== ta) return tb - ta;
-            return String(b?.id || '').localeCompare(String(a?.id || ''));
-          });
-          setOfflineInspections(sorted);
+          setOfflineInspections(inspections);
         })
         .catch(err => {
           console.error('Failed to load offline inspections:', err);
@@ -193,52 +170,21 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
         <div>
           <span style={{ fontSize: '13px', opacity: 0.8 }}>Signed in as </span>
           <strong>{user?.fullName || user?.email}</strong>
-          {user?.designation && (() => {
-            const ls = licenseStatus(user);
-            const dotColor = ({
-              ok: '#38a169',
-              warning: '#d69e2e',
-              critical: '#dd6b20',
-              expired: '#e53e3e',
-              unknown: '#a0aec0',
-            })[ls.state];
-            return (
-              <span
-                onClick={() => { if (user?.isPrimaryAdmin) setPendingDesignation('__change__'); }}
-                style={{
-                  fontSize: '11px', background: '#ebf8ff', color: '#2c5282',
-                  padding: '2px 8px', borderRadius: '10px', marginLeft: '8px',
-                  fontWeight: '600',
-                  cursor: user?.isPrimaryAdmin ? 'pointer' : 'default',
-                  display: 'inline-flex', alignItems: 'center', gap: '6px',
-                }}
-                title={user?.isPrimaryAdmin ? `Click to change designation. License status: ${ls.label}${ls.cite ? ' — ' + ls.cite : ''}` : `License status: ${ls.label}${ls.cite ? ' — ' + ls.cite : ''}`}
-              >
-                <span
-                  aria-label={`License status: ${ls.state}`}
-                  style={{
-                    display: 'inline-block', width: '8px', height: '8px',
-                    borderRadius: '50%', background: dotColor,
-                    boxShadow: ls.state === 'expired' ? '0 0 0 2px rgba(229,62,62,0.3)' : 'none',
-                  }}
-                />
-                {DESIGNATION_LABELS[user.designation] || user.designation}
-                {user?.isPrimaryAdmin && (
-                  <span style={{ fontSize: '9px', marginLeft: '2px', opacity: 0.7 }}>(change)</span>
-                )}
-              </span>
-            );
-          })()}
-          {user?.designation && licenseStatus(user).state === 'expired' && (
+          {user?.designation && (
             <span
+              onClick={() => { if (user?.isPrimaryAdmin) setPendingDesignation('__change__'); }}
               style={{
-                fontSize: '11px', background: '#c53030', color: '#fff',
-                padding: '2px 8px', borderRadius: '10px', marginLeft: '6px',
-                fontWeight: '700',
+                fontSize: '11px', background: '#ebf8ff', color: '#2c5282',
+                padding: '2px 8px', borderRadius: '10px', marginLeft: '8px',
+                fontWeight: '600',
+                cursor: user?.isPrimaryAdmin ? 'pointer' : 'default',
               }}
-              title="40 CFR 745.226 — cannot perform regulated work with an expired certification"
+              title={user?.isPrimaryAdmin ? 'Click to change designation' : ''}
             >
-              LICENSE EXPIRED
+              {DESIGNATION_LABELS[user.designation] || user.designation}
+              {user?.isPrimaryAdmin && (
+                <span style={{ fontSize: '9px', marginLeft: '4px', opacity: 0.7 }}>(change)</span>
+              )}
             </span>
           )}
           {user?.isPrimaryAdmin && (
@@ -280,6 +226,11 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
           {onManageClients && (
             <button onClick={onManageClients} style={{ ...btnTeam, background: '#2b6cb0' }}>
               Client Portal {unreadNotifCount > 0 && `(${unreadNotifCount})`}
+            </button>
+          )}
+          {onOpenBilling && user?.isPrimaryAdmin && (
+            <button onClick={onOpenBilling} style={{ ...btnTeam, background: '#b7791f' }}>
+              Billing
             </button>
           )}
           <button onClick={logout} style={btnGhost}>Sign Out</button>
@@ -483,7 +434,7 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
                     Inspector: {inspection.inspectorName || 'Not set'}
                   </div>
 
-                  {/* Progress Bar — tabCompletion may be absent on older saves */}
+                  {/* Progress Bar */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{ flex: '1', background: '#e2e8f0', borderRadius: '4px', height: '6px', minWidth: '100px' }}>
                       <div
@@ -491,13 +442,13 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
                           background: '#3182ce',
                           height: '6px',
                           borderRadius: '4px',
-                          width: (inspection?.tabCompletion?._overall || 0) + '%',
+                          width: (inspection.tabCompletion._overall || 0) + '%',
                           transition: 'width 0.3s'
                         }}
                       ></div>
                     </div>
                     <span style={{ fontSize: '12px', fontWeight: '600', color: '#2d3748', minWidth: '35px' }}>
-                      {inspection?.tabCompletion?._overall || 0}%
+                      {inspection.tabCompletion._overall || 0}%
                     </span>
                   </div>
                 </div>
@@ -631,32 +582,12 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
       {/* Share with Client Modal */}
       {shareModal && (
         <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) setShareModal(null); }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', maxWidth: '460px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
             <div style={{ fontWeight: '700', fontSize: '16px', color: '#1a365d', marginBottom: '4px' }}>
               Share Project with Client
             </div>
-            <div style={{ fontSize: '13px', color: '#718096', marginBottom: '12px' }}>
+            <div style={{ fontSize: '13px', color: '#718096', marginBottom: '16px' }}>
               {shareModal.projectName}
-            </div>
-
-            {/* PHI / HIPAA advisory — inspection projects can carry resident
-                interview data (children under 6, reported BLLs, household
-                health history) which is protected health information. */}
-            <div style={{
-              padding: '10px 12px', borderRadius: '6px', marginBottom: '14px',
-              background: '#fef3c7', border: '1px solid #f59e0b', color: '#78350f',
-              fontSize: '12px', lineHeight: '1.5',
-            }}>
-              <div style={{ fontWeight: '700', marginBottom: '2px' }}>
-                Confirm the project contains no protected health information
-              </div>
-              <div>
-                If this project includes resident-interview BLL values, child
-                names, or medical history, sharing outside your organization
-                may require a Business Associate Agreement (HIPAA 45 CFR 164)
-                or consent per MCL 333.5474. The client portal is not a
-                BAA-covered channel. When in doubt, redact before sharing.
-              </div>
             </div>
             {shareError && (
               <div style={{ padding: '8px 12px', borderRadius: '6px', marginBottom: '12px', background: '#fed7d7', color: '#c53030', fontSize: '13px' }}>
