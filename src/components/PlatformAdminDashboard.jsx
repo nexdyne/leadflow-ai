@@ -287,11 +287,21 @@ function UsersPanel() {
     }
   };
 
-  const handleResetPassword = async (userId, newPassword) => {
+  const handleResetPassword = async (userId, body) => {
     try {
-      await apiCall('PUT', `/platform/users/${userId}/reset-password`, { newPassword });
-      setActionModal(null);
-      alert('Password reset. User will be required to change it on next login.');
+      // body shape: { newPassword?, sendEmail? } — see C32 backend contract
+      const result = await apiCall('PUT', `/platform/users/${userId}/reset-password`, body || {});
+      // Show a result modal with the temp password + email status so the admin
+      // can copy it and hand it off if Resend isn't wired yet.
+      setActionModal({
+        type: 'resetPwResult',
+        userId,
+        userName: actionModal?.userName || '',
+        userEmail: actionModal?.userEmail || '',
+        tempPassword: result?.tempPassword || '',
+        emailSent: !!result?.emailSent,
+        generated: !!result?.generated,
+      });
     } catch (err) {
       alert('Failed to reset password: ' + err.message);
     }
@@ -385,7 +395,7 @@ function UsersPanel() {
                     ) : (
                       <button onClick={() => setActionModal({ type: 'suspend', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#f59e0b')}>Suspend</button>
                     )}
-                    <button onClick={() => setActionModal({ type: 'resetPw', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#3b82f6')}>Reset PW</button>
+                    <button onClick={() => setActionModal({ type: 'resetPw', userId: u.id, userName: u.fullName || u.email, userEmail: u.email })} style={actionBtnStyle('#3b82f6')}>Reset PW</button>
                     <button onClick={() => handleDelete(u.id)} style={actionBtnStyle('#ef4444')}>Delete</button>
                   </div>
                 </td>
@@ -415,8 +425,19 @@ function UsersPanel() {
       {actionModal && actionModal.type === 'resetPw' && (
         <ResetPasswordModal
           userName={actionModal.userName}
-          onConfirm={(pw) => handleResetPassword(actionModal.userId, pw)}
+          userEmail={actionModal.userEmail}
+          onConfirm={(body) => handleResetPassword(actionModal.userId, body)}
           onCancel={() => setActionModal(null)}
+        />
+      )}
+      {actionModal && actionModal.type === 'resetPwResult' && (
+        <ResetPasswordResultModal
+          userName={actionModal.userName}
+          userEmail={actionModal.userEmail}
+          tempPassword={actionModal.tempPassword}
+          emailSent={actionModal.emailSent}
+          generated={actionModal.generated}
+          onClose={() => setActionModal(null)}
         />
       )}
     </div>
@@ -986,21 +1007,184 @@ function SuspendModal({ userName, onConfirm, onCancel }) {
   );
 }
 
-function ResetPasswordModal({ userName, onConfirm, onCancel }) {
+function ResetPasswordModal({ userName, userEmail, onConfirm, onCancel }) {
+  // Default flow: generate a strong temp password + email it. Advanced
+  // flow (toggle): type a password yourself. Always force-change on next
+  // login regardless of path.
+  const [mode, setMode] = useState('generate'); // 'generate' | 'manual'
   const [pw, setPw] = useState('');
+  const [sendEmail, setSendEmail] = useState(true);
+
+  const submit = () => {
+    if (mode === 'generate') {
+      onConfirm({ sendEmail });
+    } else {
+      onConfirm({ newPassword: pw, sendEmail });
+    }
+  };
+
   return (
     <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <h3 style={{ color: '#f1f5f9', marginBottom: '16px' }}>Reset Password for {userName}</h3>
-        <label style={{ color: '#94a3b8', fontSize: '13px' }}>New Password (min 8 chars)</label>
-        <input
-          type="text" value={pw} onChange={e => setPw(e.target.value)}
-          placeholder="Enter new password..."
-          style={{ ...inputDarkStyle, marginTop: '4px', marginBottom: '16px' }}
-        />
+      <div style={{ ...modalStyle, maxWidth: '480px' }}>
+        <h3 style={{ color: '#f1f5f9', marginBottom: '4px' }}>Reset Password</h3>
+        <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '16px' }}>
+          Reset password for <strong style={{ color: '#e2e8f0' }}>{userName}</strong>
+          {userEmail ? <span style={{ color: '#64748b' }}> &lt;{userEmail}&gt;</span> : null}
+        </p>
+
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
+          <button
+            onClick={() => setMode('generate')}
+            style={{
+              flex: 1, padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+              background: mode === 'generate' ? '#2563eb' : '#1e293b',
+              color: mode === 'generate' ? '#fff' : '#94a3b8',
+              fontWeight: 600, fontSize: '13px',
+            }}
+          >Generate &amp; Send</button>
+          <button
+            onClick={() => setMode('manual')}
+            style={{
+              flex: 1, padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+              background: mode === 'manual' ? '#2563eb' : '#1e293b',
+              color: mode === 'manual' ? '#fff' : '#94a3b8',
+              fontWeight: 600, fontSize: '13px',
+            }}
+          >Set Manually</button>
+        </div>
+
+        {mode === 'generate' ? (
+          <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', padding: '14px', marginBottom: '14px', color: '#cbd5e1', fontSize: '13px', lineHeight: 1.6 }}>
+            A strong 16-character temporary password will be generated on the
+            server. The user will be forced to change it the next time they
+            log in, and all of their active sessions will be signed out.
+          </div>
+        ) : (
+          <>
+            <label style={{ color: '#94a3b8', fontSize: '13px' }}>New Password (min 8 chars)</label>
+            <input
+              type="text"
+              value={pw}
+              onChange={e => setPw(e.target.value)}
+              placeholder="Type a password..."
+              style={{ ...inputDarkStyle, marginTop: '4px', marginBottom: '14px' }}
+              autoFocus
+            />
+          </>
+        )}
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#cbd5e1', fontSize: '13px', marginBottom: '18px', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={sendEmail}
+            onChange={e => setSendEmail(e.target.checked)}
+            style={{ accentColor: '#2563eb', width: '14px', height: '14px' }}
+          />
+          Email the temporary password to the user (requires Resend)
+        </label>
+
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onCancel} style={actionBtnStyle('#475569')}>Cancel</button>
-          <button onClick={() => onConfirm(pw)} disabled={pw.length < 8} style={actionBtnStyle('#3b82f6')}>Reset Password</button>
+          <button
+            onClick={submit}
+            disabled={mode === 'manual' && pw.length < 8}
+            style={actionBtnStyle('#3b82f6')}
+          >
+            {mode === 'generate' ? 'Generate + Reset' : 'Reset Password'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResetPasswordResultModal({ userName, userEmail, tempPassword, emailSent, generated, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(tempPassword);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Fallback for environments without clipboard API
+      const el = document.createElement('textarea');
+      el.value = tempPassword;
+      document.body.appendChild(el);
+      el.select();
+      try { document.execCommand('copy'); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {}
+      document.body.removeChild(el);
+    }
+  };
+
+  return (
+    <div style={overlayStyle}>
+      <div style={{ ...modalStyle, maxWidth: '480px' }}>
+        <h3 style={{ color: '#f1f5f9', marginBottom: '4px' }}>Password Reset</h3>
+        <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '14px' }}>
+          {generated ? 'Generated a new temporary password for' : 'Set new password for'}{' '}
+          <strong style={{ color: '#e2e8f0' }}>{userName}</strong>
+          {userEmail ? <span style={{ color: '#64748b' }}> &lt;{userEmail}&gt;</span> : null}.
+        </p>
+
+        <div style={{
+          background: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px',
+          padding: '14px', marginBottom: '14px',
+        }}>
+          <div style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
+            Temporary Password
+          </div>
+          <div style={{
+            fontFamily: 'ui-monospace, Menlo, Monaco, "Courier New", monospace',
+            fontSize: '16px', fontWeight: 700, color: '#fef3c7',
+            letterSpacing: '0.5px', wordBreak: 'break-all', userSelect: 'all',
+          }}>
+            {tempPassword || '(hidden)'}
+          </div>
+          <button
+            onClick={copy}
+            style={{
+              marginTop: '10px',
+              background: copied ? '#16a34a' : '#334155',
+              color: '#f1f5f9',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+
+        <div style={{
+          background: emailSent ? '#052e16' : '#3f1d1d',
+          border: `1px solid ${emailSent ? '#14532d' : '#7f1d1d'}`,
+          borderRadius: '8px',
+          padding: '12px 14px',
+          marginBottom: '14px',
+          color: emailSent ? '#bbf7d0' : '#fecaca',
+          fontSize: '13px',
+          lineHeight: 1.6,
+        }}>
+          {emailSent ? (
+            <>Email with the temporary password was sent to the user.</>
+          ) : (
+            <>
+              Email was <strong>not sent</strong> — RESEND_API_KEY is missing or Resend is offline.
+              Copy the temp password above and give it to the user through another channel.
+            </>
+          )}
+        </div>
+
+        <div style={{ color: '#94a3b8', fontSize: '12px', lineHeight: 1.6, marginBottom: '14px' }}>
+          The user will be forced to change this password on their next login,
+          and all of their active sessions have been signed out.
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={actionBtnStyle('#2563eb')}>Done</button>
         </div>
       </div>
     </div>
