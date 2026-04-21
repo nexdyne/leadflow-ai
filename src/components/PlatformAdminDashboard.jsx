@@ -298,8 +298,24 @@ function UsersPanel() {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
-  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null); // { id, name } when row clicked
+  const [userDetail, setUserDetail] = useState(null); // { user, teams, projects, auditHistory }
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState(null);
   const [actionModal, setActionModal] = useState(null); // { type: 'suspend'|'resetPw', userId }
+
+  // Fetch full detail (teams, projects, auditHistory) when a user is selected
+  useEffect(() => {
+    if (!selectedUser) { setUserDetail(null); setDetailError(null); return; }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    apiCall('GET', `/platform/users/${selectedUser.id}`)
+      .then(data => { if (!cancelled) setUserDetail(data); })
+      .catch(err => { if (!cancelled) setDetailError(err.message || 'Failed to load user'); })
+      .finally(() => { if (!cancelled) setDetailLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedUser]);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -408,7 +424,13 @@ function UsersPanel() {
             ) : users.map(u => (
               <tr key={u.id} style={{ borderBottom: '1px solid #1e293b' }}>
                 <td style={cellStyle}>
-                  <div style={{ fontWeight: '500', color: '#f1f5f9' }}>{u.fullName || '—'}</div>
+                  <div
+                    onClick={() => setSelectedUser({ id: u.id, name: u.fullName || u.email })}
+                    style={{ fontWeight: '500', color: '#60a5fa', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+                    title="Click to view full details"
+                  >
+                    {u.fullName || '—'}
+                  </div>
                   {u.isPrimaryAdmin && <span style={badgeStyle('#7c3aed')}>Primary Admin</span>}
                 </td>
                 <td style={cellStyle}>{u.email}</td>
@@ -431,7 +453,14 @@ function UsersPanel() {
                 <td style={cellStyle}>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</td>
                 <td style={cellStyle}>{new Date(u.createdAt).toLocaleDateString()}</td>
                 <td style={cellStyle}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => setSelectedUser({ id: u.id, name: u.fullName || u.email })}
+                      style={actionBtnStyle('#6366f1')}
+                      title="View teams, projects, and audit history"
+                    >
+                      View
+                    </button>
                     {u.suspendedAt ? (
                       <button onClick={() => handleReactivate(u.id)} style={actionBtnStyle('#10b981')}>Reactivate</button>
                     ) : (
@@ -482,6 +511,25 @@ function UsersPanel() {
           projectCount={actionModal.projectCount}
           onConfirm={() => handleDelete(actionModal.userId)}
           onCancel={() => setActionModal(null)}
+        />
+      )}
+
+      {/* User Detail Modal */}
+      {selectedUser && (
+        <UserDetailModal
+          selectedUser={selectedUser}
+          detail={userDetail}
+          loading={detailLoading}
+          error={detailError}
+          onClose={() => setSelectedUser(null)}
+          onSuspend={(userName) => {
+            setActionModal({ type: 'suspend', userId: selectedUser.id, userName });
+            setSelectedUser(null);
+          }}
+          onResetPw={(userName) => {
+            setActionModal({ type: 'resetPw', userId: selectedUser.id, userName });
+            setSelectedUser(null);
+          }}
         />
       )}
     </div>
@@ -1098,6 +1146,234 @@ function CreateAnnouncementModal({ onSave, onCancel }) {
 // ═══════════════════════════════════════════════════════════
 //  SHARED STYLES
 // ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+//  USER DETAIL MODAL
+// ═══════════════════════════════════════════════════════════
+
+function UserDetailModal({ selectedUser, detail, loading, error, onClose, onSuspend, onResetPw }) {
+  const user = detail && detail.user ? detail.user : null;
+  const teams = detail && Array.isArray(detail.teams) ? detail.teams : [];
+  const projects = detail && Array.isArray(detail.projects) ? detail.projects : [];
+  const auditHistory = detail && Array.isArray(detail.auditHistory) ? detail.auditHistory : [];
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleString() : '—';
+  const fmtDateShort = (d) => d ? new Date(d).toLocaleDateString() : '—';
+
+  const statusBadge = !user ? null : (
+    user.suspendedAt ? <span style={badgeStyle('#ef4444')}>Suspended</span>
+      : user.active ? <span style={badgeStyle('#10b981')}>Active</span>
+      : <span style={badgeStyle('#64748b')}>Inactive</span>
+  );
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div
+        style={{ ...modalStyle, maxWidth: '900px', maxHeight: '90vh', overflow: 'auto' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px' }}>
+          <div>
+            <h3 style={{ color: '#f1f5f9', fontSize: '20px', margin: 0 }}>
+              {selectedUser.name}
+            </h3>
+            {user && (
+              <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>
+                {user.email} · {user.role || '—'} · Joined {fmtDateShort(user.createdAt)} {statusBadge}
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #475569', color: '#cbd5e1', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>
+            Close
+          </button>
+        </div>
+
+        {loading && (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading detail...</div>
+        )}
+        {error && (
+          <div style={{ padding: '16px', background: '#7f1d1d', color: '#fecaca', borderRadius: '6px', marginBottom: '16px' }}>
+            Failed to load: {error}
+          </div>
+        )}
+
+        {!loading && !error && user && (
+          <>
+            {/* Core info grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+              <InfoCell label="Organization" value={user.orgName || '—'} />
+              <InfoCell label="Plan" value={user.orgPlan || '—'} />
+              <InfoCell label="Phone" value={user.phone || '—'} />
+              <InfoCell label="Last login" value={fmtDate(user.lastLoginAt)} />
+              <InfoCell label="Email verified" value={user.emailVerifiedAt ? fmtDateShort(user.emailVerifiedAt) : 'No'} />
+              <InfoCell label="Must change PW" value={user.mustChangePassword ? 'Yes' : 'No'} />
+              {user.suspendedAt && (
+                <InfoCell label="Suspended" value={fmtDate(user.suspendedAt) + (user.suspensionReason ? ' — ' + user.suspensionReason : '')} highlight="#ef4444" />
+              )}
+              {user.licenseNumber && (
+                <InfoCell label="License #" value={user.licenseNumber + (user.licenseExpiresAt ? ' (exp ' + fmtDateShort(user.licenseExpiresAt) + ')' : '')} />
+              )}
+            </div>
+
+            {/* Teams */}
+            <DetailSection title={`Teams (${teams.length})`}>
+              {teams.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>Not a member of any team</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #334155' }}>
+                      <th style={detailThStyle}>Team</th>
+                      <th style={detailThStyle}>Role</th>
+                      <th style={detailThStyle}>Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teams.map((t) => (
+                      <tr key={t.id || t.teamId} style={{ borderBottom: '1px solid #1e293b' }}>
+                        <td style={detailTdStyle}>{t.name}</td>
+                        <td style={detailTdStyle}>
+                          <span style={badgeStyle(t.role === 'lead' ? '#3b82f6' : '#64748b')}>{t.role || 'member'}</span>
+                        </td>
+                        <td style={detailTdStyle}>{fmtDateShort(t.joinedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </DetailSection>
+
+            {/* Projects */}
+            <DetailSection title={`Recent Projects (${projects.length})`}>
+              {projects.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>No projects yet</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #334155' }}>
+                      <th style={detailThStyle}>Project</th>
+                      <th style={detailThStyle}>Address</th>
+                      <th style={detailThStyle}>Status</th>
+                      <th style={detailThStyle}>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.map((p) => (
+                      <tr key={p.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                        <td style={detailTdStyle}>{p.name || p.projectName || '(untitled)'}</td>
+                        <td style={detailTdStyle}>{p.propertyAddress || p.address || '—'}</td>
+                        <td style={detailTdStyle}>
+                          <span style={badgeStyle(
+                            p.status === 'completed' ? '#10b981'
+                            : p.status === 'in_progress' ? '#3b82f6'
+                            : '#64748b'
+                          )}>
+                            {p.status || 'draft'}
+                          </span>
+                        </td>
+                        <td style={detailTdStyle}>{fmtDateShort(p.updatedAt || p.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </DetailSection>
+
+            {/* Audit history */}
+            <DetailSection title={`Audit History (last ${auditHistory.length})`}>
+              <div style={{ fontSize: '11px', color: '#f59e0b', marginBottom: '8px' }}>
+                PII in audit details is redacted per HIPAA 45 CFR 164.514(b) / NIST SP 800-53 AU-11
+              </div>
+              {auditHistory.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>No recorded actions</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #334155' }}>
+                      <th style={detailThStyle}>When</th>
+                      <th style={detailThStyle}>Action</th>
+                      <th style={detailThStyle}>By</th>
+                      <th style={detailThStyle}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditHistory.map((a, i) => {
+                      const redacted = redactAuditDetails(a.details);
+                      return (
+                        <tr key={a.id || i} style={{ borderBottom: '1px solid #1e293b' }}>
+                          <td style={detailTdStyle}>{fmtDate(a.createdAt || a.timestamp)}</td>
+                          <td style={detailTdStyle}>{a.action || a.eventType || '—'}</td>
+                          <td style={detailTdStyle}>{a.actorEmail || a.actorId || 'system'}</td>
+                          <td style={{ ...detailTdStyle, fontFamily: 'monospace', fontSize: '11px', maxWidth: '380px', wordBreak: 'break-word' }}>
+                            {redacted ? JSON.stringify(redacted) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </DetailSection>
+
+            {/* Actions footer */}
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid #334155', paddingTop: '12px', marginTop: '12px' }}>
+              <button
+                onClick={() => onResetPw(selectedUser.name)}
+                style={actionBtnStyle('#3b82f6')}
+              >
+                Reset Password
+              </button>
+              {!user.suspendedAt && (
+                <button
+                  onClick={() => onSuspend(selectedUser.name)}
+                  style={actionBtnStyle('#f59e0b')}
+                >
+                  Suspend
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InfoCell({ label, value, highlight }) {
+  return (
+    <div style={{ background: '#0f172a', border: '1px solid ' + (highlight || '#334155'), padding: '10px 12px', borderRadius: '6px' }}>
+      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+      <div style={{ fontSize: '13px', color: highlight ? '#fecaca' : '#f1f5f9', marginTop: '4px', wordBreak: 'break-word' }}>{value}</div>
+    </div>
+  );
+}
+
+function DetailSection({ title, children }) {
+  return (
+    <div style={{ marginBottom: '20px' }}>
+      <div style={{ fontSize: '13px', fontWeight: '600', color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', paddingBottom: '4px', borderBottom: '1px solid #334155' }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const detailThStyle = {
+  padding: '8px 10px',
+  textAlign: 'left',
+  fontSize: '11px',
+  color: '#94a3b8',
+  textTransform: 'uppercase',
+  fontWeight: '600',
+};
+
+const detailTdStyle = {
+  padding: '8px 10px',
+  color: '#cbd5e1',
+  verticalAlign: 'top',
+};
 
 const cardStyle = {
   background: '#1e293b', borderRadius: '12px', padding: '20px',
