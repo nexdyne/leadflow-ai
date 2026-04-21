@@ -1,5 +1,7 @@
 import { query, withTransaction } from '../../db/connection.js';
 import { hashPassword } from '../../utils/hash.js';
+import { generateTempPassword } from '../../utils/tempPassword.js';
+import { sendAdminPasswordResetEmail } from '../../utils/email.js';
 
 // Async route wrapper — catches unhandled promise rejections and forwards to Express error handler
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
@@ -198,6 +200,10 @@ export async function reactivateUser(req, res) {
 }
 
 // PUT /api/admin/users/:userId/reset-password
+// Generates a strong temp password, emails it to the user, and forces change on next login.
+// If req.body.newPassword is provided AND >= 8 chars, that password is used instead
+// (legacy behavior — admin can still type one directly).
+// If req.body.sendEmail === false, the password is NOT emailed (admin will hand it off in person).
 export async function resetPassword(req, res) {
   const auth = await requirePrimaryAdmin(req.user.userId);
   if (!auth.ok) {
@@ -207,15 +213,25 @@ export async function resetPassword(req, res) {
   const targetId = parseInt(req.params.userId);
 
   // Verify user is in admin's org
-  const targetCheck = await query('SELECT id FROM users WHERE id = $1 AND organization_id = $2', [targetId, auth.orgId]);
+  const targetCheck = await query(
+    'SELECT id, email, full_name FROM users WHERE id = $1 AND organization_id = $2',
+    [targetId, auth.orgId]
+  );
   if (targetCheck.rows.length === 0) {
     return res.status(404).json({ error: 'User not found in your organization', code: 'NOT_FOUND' });
   }
+  const targetUser = targetCheck.rows[0];
 
-  const newPassword = req.body.newPassword || 'ChangeMe123!';
-  const passwordHash = await hashPassword(newPassword);
+  const suppliedPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword.trim() : '';
+  const tempPassword = suppliedPassword && suppliedPassword.length >= 8
+    ? suppliedPassword
+    : generateTempPassword(16);
+  const passwordHash = await hashPassword(tempPassword);
 
-  await query('UPDATE users SET password_hash = $1, must_change_password = true, updated_at = NOW() WHERE id = $2', [passwordHash, targetId]);
+  await query(
+    'UPDATE users SET password_hash = $1, must_change_password = true, updated_at = NOW() WHERE id = $2',
+    [passwordHash, targetId]
+  );
 
   // Revoke all their sessions
   await query(
@@ -223,7 +239,30 @@ export async function resetPassword(req, res) {
     [targetId]
   );
 
-  res.json({ success: true, tempPassword: newPassword });
+  // Look up the reset-er's display name for the email
+  const resetBy = await query(
+    'SELECT COALESCE(full_name, email) AS name FROM users WHERE id = $1',
+    [req.user.userId]
+  );
+  const resetByName = resetBy.rows[0]?.name || 'an administrator';
+
+  // Fire-and-forget email (don't let a Resend outage fail the reset)
+  let emailSent = false;
+  if (req.body.sendEmail !== false) {
+    try {
+      const result = await sendAdminPasswordResetEmail(targetUser.email, targetUser.full_name, tempPassword, resetByName);
+      emailSent = !result?.skipped;
+    } catch (err) {
+      console.error('[resetPassword] email send failed:', err.message);
+    }
+  }
+
+  res.json({
+    success: true,
+    tempPassword,
+    emailSent,
+    generated: !suppliedPassword || suppliedPassword.length < 8,
+  });
 }
 
 // POST /api/admin/users/:userId/add-to-team

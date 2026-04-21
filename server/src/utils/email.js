@@ -974,6 +974,41 @@ export async function sendLoginAlertEmail(to, fullName, ipAddress, userAgent, lo
 
 
 // ═══════════════════════════════════════════════════════════
+//  ADMIN-TRIGGERED TEMPORARY PASSWORD
+// ═══════════════════════════════════════════════════════════
+
+export async function sendAdminPasswordResetEmail(to, fullName, tempPassword, resetBy) {
+  const subject = 'Your LeadFlow AI password has been reset';
+  const html = emailLayout(subject, `
+    <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">Password Reset by Administrator</h2>
+    <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
+      Hi ${fullName || 'there'}, an administrator${resetBy ? ` (${resetBy})` : ''} has reset the password for your ${APP_NAME} account.
+    </p>
+    <div style="background:#fefce8; border:1px solid #fef08a; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #eab308;">
+      <div style="color:#854d0e; font-size:14px; font-weight:600; margin-bottom:8px;">Your Temporary Password</div>
+      <div style="font-family:ui-monospace,Menlo,Monaco,'Courier New',monospace; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:12px 16px; color:#78350f; font-size:16px; letter-spacing:1px; font-weight:700; word-break:break-all;">
+        ${tempPassword}
+      </div>
+      <p style="color:#78350f; font-size:12px; line-height:1.6; margin:12px 0 0;">
+        You will be required to change this password when you log in.
+      </p>
+    </div>
+    ${buttonHtml('Sign In', `${APP_URL}/login`, '#2563eb')}
+    <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #dc2626;">
+      <p style="color:#7f1d1d; font-size:13px; line-height:1.6; margin:0;">
+        <strong>Didn't request this?</strong> Contact your administrator or reply to <a href="mailto:support@nexdynegroup.com" style="color:#dc2626;">support@nexdynegroup.com</a> immediately.
+      </p>
+    </div>
+    <p style="color:#94a3b8; font-size:12px; margin:16px 0 0; text-align:center;">
+      For security, any active sessions have been signed out.
+    </p>
+  `);
+
+  return sendEmail(to, subject, html, 'admin_password_reset');
+}
+
+
+// ═══════════════════════════════════════════════════════════
 //  31. DAILY DIGEST
 // ═══════════════════════════════════════════════════════════
 

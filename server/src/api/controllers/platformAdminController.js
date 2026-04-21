@@ -1,6 +1,12 @@
 import { query, withTransaction } from '../../db/connection.js';
 import { hashPassword } from '../../utils/hash.js';
-import { sendAnnouncementEmail, sendAccountSuspendedEmail, sendAccountReactivatedEmail } from '../../utils/email.js';
+import { generateTempPassword } from '../../utils/tempPassword.js';
+import {
+  sendAnnouncementEmail,
+  sendAccountSuspendedEmail,
+  sendAccountReactivatedEmail,
+  sendAdminPasswordResetEmail,
+} from '../../utils/email.js';
 import { getBillingSummaryForAdmin } from './billingController.js';
 
 // ─── Helper: verify user is platform admin ──────────────
@@ -347,7 +353,18 @@ export async function deleteUser(req, res) {
   res.json({ success: true });
 }
 
-// PUT /api/platform/users/:id/reset-password — force reset a user's password
+// PUT /api/platform/users/:id/reset-password — force reset a user's password.
+//
+// Behaviors:
+//   - If req.body.newPassword is supplied (>= 8 chars), use it verbatim.
+//   - Otherwise, generate a strong 16-char temp password.
+//   - Password is hashed, must_change_password=true, all sessions revoked.
+//   - Unless req.body.sendEmail === false, the temp password is emailed
+//     to the user via Resend (sendAdminPasswordResetEmail). Emails fall
+//     back silently if RESEND_API_KEY isn't configured — admin can still
+//     copy the temp password from the response.
+//   - The plaintext temp password is returned in the JSON response so the
+//     platform admin can hand it off out-of-band if email delivery is off.
 export async function resetUserPassword(req, res) {
   try {
     await requirePlatformAdmin(req.user.userId);
@@ -356,24 +373,60 @@ export async function resetUserPassword(req, res) {
   }
 
   const { id } = req.params;
-  const { newPassword } = req.body;
-
-  if (!newPassword || newPassword.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  const targetId = parseInt(id);
+  if (!Number.isFinite(targetId)) {
+    return res.status(400).json({ error: 'Invalid user id' });
   }
 
-  const hash = await hashPassword(newPassword);
+  const targetRow = await query(
+    'SELECT id, email, full_name FROM users WHERE id = $1',
+    [targetId]
+  );
+  if (targetRow.rows.length === 0) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  const target = targetRow.rows[0];
+
+  const supplied = typeof req.body?.newPassword === 'string' ? req.body.newPassword.trim() : '';
+  const tempPassword = supplied && supplied.length >= 8 ? supplied : generateTempPassword(16);
+  const hash = await hashPassword(tempPassword);
+
   await query(
     `UPDATE users SET password_hash = $1, must_change_password = true, updated_at = NOW() WHERE id = $2`,
-    [hash, id]
+    [hash, targetId]
   );
 
   // Revoke all sessions to force re-login
-  await query('UPDATE sessions SET is_revoked = true WHERE user_id = $1', [id]);
+  await query('UPDATE sessions SET is_revoked = true WHERE user_id = $1', [targetId]);
 
-  await auditLog(req.user.userId, req.user.email, 'user.password_reset', 'user', parseInt(id), {});
+  // Resolve a friendly "reset by" name
+  const actorRow = await query(
+    'SELECT COALESCE(full_name, email) AS name FROM users WHERE id = $1',
+    [req.user.userId]
+  );
+  const resetByName = actorRow.rows[0]?.name || 'Platform admin';
 
-  res.json({ success: true });
+  let emailSent = false;
+  if (req.body?.sendEmail !== false) {
+    try {
+      const result = await sendAdminPasswordResetEmail(target.email, target.full_name, tempPassword, resetByName);
+      emailSent = !result?.skipped;
+    } catch (err) {
+      console.error('[resetUserPassword] email send failed:', err.message);
+    }
+  }
+
+  await auditLog(req.user.userId, req.user.email, 'user.password_reset', 'user', targetId, {
+    emailSent,
+    generated: !(supplied && supplied.length >= 8),
+  });
+
+  res.json({
+    success: true,
+    tempPassword,
+    emailSent,
+    generated: !(supplied && supplied.length >= 8),
+  });
 }
 
 
