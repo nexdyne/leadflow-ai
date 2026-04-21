@@ -6,6 +6,7 @@ const TABS = [
   { key: 'overview', label: 'Overview', icon: '📊' },
   { key: 'users', label: 'Users', icon: '👥' },
   { key: 'organizations', label: 'Organizations', icon: '🏢' },
+  { key: 'projects', label: 'Projects', icon: '🏠' },
   { key: 'revenue', label: 'Revenue', icon: '💰' },
   { key: 'announcements', label: 'Announcements', icon: '📢' },
   { key: 'audit', label: 'Audit Logs', icon: '📋' },
@@ -179,6 +180,7 @@ export default function PlatformAdminDashboard({ onLogout }) {
             {activeTab === 'overview' && <OverviewPanel dashboard={dashboard} onRefresh={loadDashboard} />}
             {activeTab === 'users' && <UsersPanel />}
             {activeTab === 'organizations' && <OrganizationsPanel />}
+            {activeTab === 'projects' && <ProjectsPanel />}
             {activeTab === 'revenue' && <RevenuePanel />}
             {activeTab === 'announcements' && <AnnouncementsPanel />}
             {activeTab === 'audit' && <AuditPanel />}
@@ -1390,6 +1392,411 @@ function CreateAnnouncementModal({ onSave, onCancel }) {
 // ═══════════════════════════════════════════════════════════
 //  SHARED STYLES
 // ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+//  PROJECTS PANEL — admin visibility into all inspections
+// ═══════════════════════════════════════════════════════════
+
+function ProjectsPanel() {
+  const [projects, setProjects] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('active');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [projectDetail, setProjectDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState(null);
+
+  const loadProjects = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page, limit: 25 });
+      if (search) params.set('search', search);
+      if (statusFilter) params.set('status', statusFilter);
+      if (typeFilter) params.set('inspection_type', typeFilter);
+      const data = await apiCall('GET', `/platform/projects?${params}`);
+      setProjects(data.projects || []);
+      setTotal(data.total || 0);
+    } catch (err) {
+      console.error('Failed to load projects:', err);
+      setProjects([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search, statusFilter, typeFilter]);
+
+  useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  // Load detail when a project is selected
+  useEffect(() => {
+    if (!selectedProject) { setProjectDetail(null); setDetailError(null); return; }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    apiCall('GET', `/platform/projects/${selectedProject.id}`)
+      .then(data => { if (!cancelled) setProjectDetail(data); })
+      .catch(err => { if (!cancelled) setDetailError(err.message || 'Failed to load project'); })
+      .finally(() => { if (!cancelled) setDetailLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedProject]);
+
+  // Export current filter to CSV. Pages through all matching projects
+  // (capped at 2000) and assembles a CSV client-side. No new backend endpoint
+  // needed — reuses the paginated list with limit=200.
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const all = [];
+      const pageLimit = 200;
+      const maxPages = 10; // safety cap: 2000 rows
+      let p = 1;
+      while (p <= maxPages) {
+        const params = new URLSearchParams({ page: p, limit: pageLimit });
+        if (search) params.set('search', search);
+        if (statusFilter) params.set('status', statusFilter);
+        if (typeFilter) params.set('inspection_type', typeFilter);
+        const data = await apiCall('GET', `/platform/projects?${params}`);
+        const rows = data.projects || [];
+        all.push(...rows);
+        if (rows.length < pageLimit) break;
+        p += 1;
+      }
+      const header = [
+        'id', 'projectName', 'propertyAddress', 'city', 'stateCode', 'zip',
+        'yearBuilt', 'inspectionType', 'programType', 'status',
+        'inspectorName', 'inspectorEmail', 'orgName', 'orgPlan',
+        'photoCount', 'createdAt', 'updatedAt',
+      ];
+      const escape = (v) => {
+        if (v == null) return '';
+        const s = String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const csv = [
+        header.join(','),
+        ...all.map(row => header.map(h => escape(row[h])).join(',')),
+      ].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `leadflow-projects-${stamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Export failed: ' + (err.message || err));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const totalPages = Math.ceil(total / 25);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+        <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', margin: 0 }}>Projects / Inspections</h2>
+        <button
+          onClick={exportCsv}
+          disabled={exporting || loading || total === 0}
+          style={{
+            padding: '8px 14px',
+            background: (exporting || total === 0) ? '#475569' : '#10b981',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: (exporting || total === 0) ? 'not-allowed' : 'pointer',
+            fontSize: '13px',
+            fontWeight: '600',
+          }}
+          title={total > 2000 ? 'Capped at 2000 rows per export' : 'Download current filter as CSV'}
+        >
+          {exporting ? 'Exporting…' : 'Export CSV'}
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <input
+          type="text" placeholder="Search address, city, or project name..."
+          value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+          style={inputDarkStyle}
+        />
+        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} style={{ ...inputDarkStyle, width: '150px' }}>
+          <option value="active">Active</option>
+          <option value="draft">Drafts</option>
+          <option value="deleted">Deleted</option>
+          <option value="">All</option>
+        </select>
+        <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }} style={{ ...inputDarkStyle, width: '200px' }}>
+          <option value="">All Inspection Types</option>
+          <option value="lbp_inspection">LBP Inspection</option>
+          <option value="risk_assessment">Risk Assessment</option>
+          <option value="clearance">Clearance</option>
+          <option value="clearance_before">Clearance (Before)</option>
+          <option value="clearance_after">Clearance (After)</option>
+          <option value="elevated_blood_lead">EBL Response</option>
+        </select>
+      </div>
+
+      {/* Results count */}
+      <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>
+        {total} project{total !== 1 ? 's' : ''} found
+        {total > 2000 && <span style={{ color: '#f59e0b', marginLeft: '12px' }}>(CSV export will include first 2000)</span>}
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #334155' }}>
+              {['Property', 'Inspector', 'Organization', 'Type', 'Status', 'Photos', 'Created', 'Actions'].map(h => (
+                <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: '600' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading...</td></tr>
+            ) : projects.length === 0 ? (
+              <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>No projects match the current filter</td></tr>
+            ) : projects.map(p => (
+              <tr key={p.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                <td style={cellStyle}>
+                  <div
+                    onClick={() => setSelectedProject({ id: p.id, address: p.propertyAddress })}
+                    style={{ fontWeight: '500', color: '#60a5fa', cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+                  >
+                    {p.propertyAddress || '(no address)'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>{p.projectName || ''} {p.yearBuilt ? '· built ' + p.yearBuilt : ''}</div>
+                </td>
+                <td style={cellStyle}>
+                  <div style={{ color: '#cbd5e1' }}>{p.inspectorName || '—'}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>{p.inspectorEmail}</div>
+                </td>
+                <td style={cellStyle}>
+                  <div>{p.orgName || '—'}</div>
+                  {p.orgPlan && <span style={badgeStyle(p.orgPlan === 'enterprise' ? '#8b5cf6' : p.orgPlan === 'pro' ? '#3b82f6' : '#64748b')}>{p.orgPlan}</span>}
+                </td>
+                <td style={cellStyle}>
+                  {p.inspectionType ? <span style={badgeStyle('#0ea5e9')}>{p.inspectionType}</span> : '—'}
+                </td>
+                <td style={cellStyle}>
+                  <span style={badgeStyle(
+                    p.status === 'active' ? '#10b981'
+                    : p.status === 'draft' ? '#f59e0b'
+                    : '#64748b'
+                  )}>
+                    {p.status}
+                  </span>
+                </td>
+                <td style={cellStyle}>{p.photoCount}</td>
+                <td style={cellStyle}>{new Date(p.createdAt).toLocaleDateString()}</td>
+                <td style={cellStyle}>
+                  <button
+                    onClick={() => setSelectedProject({ id: p.id, address: p.propertyAddress })}
+                    style={actionBtnStyle('#6366f1')}
+                  >
+                    View
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '16px' }}>
+          <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={pageBtnStyle}>Previous</button>
+          <span style={{ color: '#94a3b8', fontSize: '14px', padding: '8px' }}>Page {page} of {totalPages}</span>
+          <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={pageBtnStyle}>Next</button>
+        </div>
+      )}
+
+      {/* Detail modal */}
+      {selectedProject && (
+        <ProjectDetailModal
+          selectedProject={selectedProject}
+          detail={projectDetail}
+          loading={detailLoading}
+          error={detailError}
+          onClose={() => setSelectedProject(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════
+//  PROJECT DETAIL MODAL
+// ═══════════════════════════════════════════════════════════
+
+function ProjectDetailModal({ selectedProject, detail, loading, error, onClose }) {
+  const project = detail && detail.project ? detail.project : null;
+  const summary = detail && detail.stateSummary ? detail.stateSummary : {};
+  const photos = detail && Array.isArray(detail.photos) ? detail.photos : [];
+  const audit = detail && Array.isArray(detail.auditHistory) ? detail.auditHistory : [];
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleString() : '—';
+  const fmtDateShort = (d) => d ? new Date(d).toLocaleDateString() : '—';
+
+  return (
+    <div style={overlayStyle} onClick={onClose}>
+      <div
+        style={{ ...modalStyle, maxWidth: '1000px', maxHeight: '90vh', overflow: 'auto' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '16px' }}>
+          <div>
+            <h3 style={{ color: '#f1f5f9', fontSize: '20px', margin: 0 }}>
+              {selectedProject.address || '(no address)'}
+            </h3>
+            {project && (
+              <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>
+                {project.projectName || ''} · {project.inspectionType || 'inspection'} · by {project.inspectorName || project.inspectorEmail} · {project.orgName || 'no org'}
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #475569', color: '#cbd5e1', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Close</button>
+        </div>
+
+        {loading && <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading project detail...</div>}
+        {error && <div style={{ padding: '16px', background: '#7f1d1d', color: '#fecaca', borderRadius: '6px', marginBottom: '16px' }}>Failed to load: {error}</div>}
+
+        {!loading && !error && project && (
+          <>
+            {/* Core property info */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+              <InfoCell label="Address" value={project.propertyAddress || '—'} />
+              <InfoCell label="City/State/Zip" value={[project.city, project.stateCode, project.zip].filter(Boolean).join(' · ') || '—'} />
+              <InfoCell label="Year built" value={project.yearBuilt || '—'} highlight={project.yearBuilt && project.yearBuilt < 1978 ? '#ef4444' : undefined} />
+              <InfoCell label="Inspection date" value={fmtDateShort(project.inspectionDate)} />
+              <InfoCell label="Inspection type" value={project.inspectionType || '—'} />
+              <InfoCell label="Program" value={project.programType || '—'} />
+              <InfoCell label="Status" value={project.status} highlight={project.status === 'deleted' ? '#ef4444' : project.status === 'draft' ? '#f59e0b' : undefined} />
+              <InfoCell label="Created" value={fmtDate(project.createdAt)} />
+              <InfoCell label="Updated" value={fmtDate(project.updatedAt)} />
+            </div>
+
+            {/* State summary — distilled flags about what happened */}
+            <DetailSection title="Inspection State">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px', fontSize: '12px' }}>
+                <StateFlag label="Signature captured" value={summary.hasSignature} />
+                <StateFlag label="Samples" value={summary.hasSamples ? summary.hasSamples + ' sample(s)' : null} />
+                <StateFlag label="Resident interview" value={summary.hasInterview} />
+                <StateFlag label="Checklist complete" value={summary.checklistComplete != null ? Math.round(summary.checklistComplete * 100) + '%' : null} />
+                <StateFlag label="Report generated" value={summary.reportGeneratedAt ? fmtDate(summary.reportGeneratedAt) : null} />
+                <StateFlag label="Signed off" value={summary.signedOffAt ? fmtDate(summary.signedOffAt) : null} />
+                <StateFlag label="QA status" value={summary.qaStatus} />
+                <StateFlag label="Photos uploaded" value={photos.length} />
+              </div>
+            </DetailSection>
+
+            {/* Photos */}
+            <DetailSection title={`Photos (${photos.length})`}>
+              {photos.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>No photos attached</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #334155' }}>
+                      <th style={detailThStyle}>#</th>
+                      <th style={detailThStyle}>Room</th>
+                      <th style={detailThStyle}>Component</th>
+                      <th style={detailThStyle}>Side</th>
+                      <th style={detailThStyle}>Condition</th>
+                      <th style={detailThStyle}>Category</th>
+                      <th style={detailThStyle}>Caption</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {photos.map((ph) => (
+                      <tr key={ph.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                        <td style={detailTdStyle}>{ph.photo_index != null ? ph.photo_index : '—'}</td>
+                        <td style={detailTdStyle}>{ph.room || '—'}</td>
+                        <td style={detailTdStyle}>{ph.component || '—'}</td>
+                        <td style={detailTdStyle}>{ph.side || '—'}</td>
+                        <td style={detailTdStyle}>{ph.condition || '—'}</td>
+                        <td style={detailTdStyle}>{ph.category || '—'}</td>
+                        <td style={{ ...detailTdStyle, maxWidth: '240px', wordBreak: 'break-word' }}>{ph.caption || ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </DetailSection>
+
+            {/* Audit trail */}
+            <DetailSection title={`Audit Trail (${audit.length})`}>
+              {audit.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: '13px', padding: '8px 0' }}>No recorded events on this project</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #334155' }}>
+                      <th style={detailThStyle}>When</th>
+                      <th style={detailThStyle}>Action</th>
+                      <th style={detailThStyle}>By</th>
+                      <th style={detailThStyle}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {audit.map((a) => {
+                      const redacted = redactAuditDetails(a.details);
+                      return (
+                        <tr key={a.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                          <td style={detailTdStyle}>{fmtDate(a.created_at)}</td>
+                          <td style={detailTdStyle}>{a.action}</td>
+                          <td style={detailTdStyle}>{a.actor_email || '—'}</td>
+                          <td style={{ ...detailTdStyle, fontFamily: 'monospace', fontSize: '11px', maxWidth: '380px', wordBreak: 'break-word' }}>
+                            {redacted ? JSON.stringify(redacted) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </DetailSection>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StateFlag({ label, value }) {
+  // Treat booleans, numbers, and strings consistently. null/undefined/false/0 = "No".
+  var present = value !== null && value !== undefined && value !== false && value !== 0 && value !== '';
+  var display;
+  if (value === true) display = 'Yes';
+  else if (value === false || value === null || value === undefined) display = 'No';
+  else display = String(value);
+  return (
+    <div style={{
+      padding: '8px 10px',
+      background: '#0f172a',
+      border: '1px solid ' + (present ? '#10b981' : '#334155'),
+      borderRadius: '4px',
+    }}>
+      <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+      <div style={{ fontSize: '12px', color: present ? '#10b981' : '#64748b', marginTop: '2px', fontWeight: '600' }}>{display}</div>
+    </div>
+  );
+}
+
 
 // ═══════════════════════════════════════════════════════════
 //  USER DETAIL MODAL
