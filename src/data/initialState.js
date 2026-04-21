@@ -54,6 +54,10 @@ export const initialState = {
     notes: '',
     issues: []
   },
+  // QA dismissals (40 CFR 745.227(h) audit trail — inspector acknowledgements of auto-detected findings)
+  qaDismissedFindings: {},
+  // Audit stamp for the most recent dismissal/restore action (who/when/what)
+  qaDismissedLastChange: null,
   // Custom project-specific thresholds (overrides REGULATORY_THRESHOLDS when applicable)
   customThresholds: {},
   // Appendix attachments (Appendix E lab reports, Appendix F XRF daily QC)
@@ -68,8 +72,11 @@ export const initialState = {
   voiceNotes: [],
   // Natural-language narrative text cached for reuse in report rendering
   nlgText: {},
-  // Digital signature captures (inspector + supervisor)
-  signatures: {}
+  // Digital signature captures (inspector + supervisor) plus shared dateSigned
+  signatures: {},
+  // Current authenticated user — minimal shape { name, email, role, licenseNumber }
+  // Hydrated from auth provider when available; otherwise falls back to projectInfo.inspectorName
+  currentUser: null
 };
 
 export function appReducer(state, action) {
@@ -84,17 +91,17 @@ export function appReducer(state, action) {
     case 'ADD_XRF_READING':
       return { ...state, xrfData: [...state.xrfData, action.payload] };
     case 'DELETE_XRF_READING':
-      return { ...state, xrfData: state.xrfData.filter((_, i) => i !== action.payload) };
+      return { ...state, xrfData: state.xrfData.filter((_, i) => i \!== action.payload) };
     case 'SET_COLUMN_MAPPING':
       return { ...state, columnMapping: action.payload };
     case 'ADD_DUST_SAMPLE':
       return { ...state, dustWipeSamples: [...state.dustWipeSamples, action.payload] };
     case 'DELETE_DUST_SAMPLE':
-      return { ...state, dustWipeSamples: state.dustWipeSamples.filter((_, i) => i !== action.payload) };
+      return { ...state, dustWipeSamples: state.dustWipeSamples.filter((_, i) => i \!== action.payload) };
     case 'ADD_SOIL_SAMPLE':
       return { ...state, soilSamples: [...state.soilSamples, action.payload] };
     case 'DELETE_SOIL_SAMPLE':
-      return { ...state, soilSamples: state.soilSamples.filter((_, i) => i !== action.payload) };
+      return { ...state, soilSamples: state.soilSamples.filter((_, i) => i \!== action.payload) };
     case 'UPDATE_LAB_INFO':
       return { ...state, labName: action.payload.labName, labCertNumber: action.payload.labCertNumber };
     case 'GENERATE_HAZARDS':
@@ -109,11 +116,11 @@ export function appReducer(state, action) {
     case 'UPDATE_PHOTO':
       return { ...state, photos: state.photos.map(function(p) { return p.id === action.payload.id ? { ...p, ...action.payload.updates } : p; }) };
     case 'DELETE_PHOTO':
-      return { ...state, photos: state.photos.filter(function(p) { return p.id !== action.payload; }) };
+      return { ...state, photos: state.photos.filter(function(p) { return p.id \!== action.payload; }) };
     case 'REORDER_PHOTOS':
       return { ...state, photos: action.payload };
     case 'TOGGLE_COMPLIANCE_CHECK':
-      return { ...state, complianceChecks: { ...state.complianceChecks, [action.payload]: !state.complianceChecks[action.payload] } };
+      return { ...state, complianceChecks: { ...state.complianceChecks, [action.payload]: \!state.complianceChecks[action.payload] } };
     case 'LOAD_SAMPLE_DATA':
       return action.payload;
     case 'RESET':
@@ -130,10 +137,19 @@ export function appReducer(state, action) {
     case 'ADD_SAMPLE_LOG':
       return { ...state, sampleLog: [...(state.sampleLog || []), action.payload] };
     case 'DELETE_SAMPLE_LOG':
-      return { ...state, sampleLog: (state.sampleLog || []).filter(function(_, i) { return i !== action.payload; }) };
+      return { ...state, sampleLog: (state.sampleLog || []).filter(function(_, i) { return i \!== action.payload; }) };
     // QA Review Sign-off (Michigan R 325.9905)
     case 'SAVE_QA_RESULTS':
       return { ...state, qaResults: { ...(state.qaResults || {}), ...action.payload } };
+    // QA dismissal audit trail (40 CFR 745.227(h) — persist inspector acknowledgements + who/when)
+    case 'SAVE_QA_DISMISSED': {
+      var dPayload = action.payload || {};
+      return {
+        ...state,
+        qaDismissedFindings: dPayload.dismissed \!= null ? dPayload.dismissed : (state.qaDismissedFindings || {}),
+        qaDismissedLastChange: dPayload.lastChange \!= null ? dPayload.lastChange : (state.qaDismissedLastChange || null)
+      };
+    }
     // Custom thresholds
     case 'UPDATE_CUSTOM_THRESHOLDS':
       return { ...state, customThresholds: { ...(state.customThresholds || {}), ...action.payload } };
@@ -149,19 +165,43 @@ export function appReducer(state, action) {
       var delBucket = action.payload && action.payload.bucket;
       var delIdx = action.payload && action.payload.index;
       var delAtts = state.attachments || { labReports: [], xrfCalibration: [] };
-      var filtered = (delAtts[delBucket] || []).filter(function(_, i) { return i !== delIdx; });
+      var filtered = (delAtts[delBucket] || []).filter(function(_, i) { return i \!== delIdx; });
       return { ...state, attachments: { ...delAtts, [delBucket]: filtered } };
     }
     // XRF daily calibration (NIOSH 9102 / Viken Pb200e daily QC)
     case 'ADD_CALIBRATION_READING':
       return { ...state, calibrationReadings: [...(state.calibrationReadings || []), action.payload] };
     case 'DELETE_CALIBRATION_READING':
-      return { ...state, calibrationReadings: (state.calibrationReadings || []).filter(function(_, i) { return i !== action.payload; }) };
+      return { ...state, calibrationReadings: (state.calibrationReadings || []).filter(function(_, i) { return i \!== action.payload; }) };
     // Voice notes
     case 'ADD_VOICE_NOTE':
       return { ...state, voiceNotes: [...(state.voiceNotes || []), action.payload] };
     case 'DELETE_VOICE_NOTE':
-      return { ...state, voiceNotes: (state.voiceNotes || []).filter(function(n) { return n.id !== action.payload; }) };
+      return { ...state, voiceNotes: (state.voiceNotes || []).filter(function(n) { return n.id \!== action.payload; }) };
+
+    // === Signature collection (ASTM E1528 / HUD Ch. 7 §7-XI — inspector + supervisor sign-off) ===
+    // Set the shared signing date (applies to all signatures collected on this report)
+    case 'SET_SIGNATURE_DATE':
+      return { ...state, signatures: { ...(state.signatures || {}), dateSigned: action.payload && action.payload.dateSigned } };
+    // Persist one signature record keyed by type (e.g., 'inspector', 'supervisor', 'client')
+    case 'SAVE_SIGNATURE': {
+      var sigType = action.payload && action.payload.signatureType;
+      var sigData = action.payload && action.payload.signatureData;
+      if (\!sigType) return state;
+      return { ...state, signatures: { ...(state.signatures || {}), [sigType]: sigData } };
+    }
+    // Clear one signature by type
+    case 'CLEAR_SIGNATURE': {
+      var clearType = action.payload && action.payload.signatureType;
+      if (\!clearType) return state;
+      var nextSigs = { ...(state.signatures || {}) };
+      delete nextSigs[clearType];
+      return { ...state, signatures: nextSigs };
+    }
+
+    // === Current user (session authentication — informs audit stamps on dismissals/signatures) ===
+    case 'SET_CURRENT_USER':
+      return { ...state, currentUser: action.payload || null };
 
     default:
       return state;
