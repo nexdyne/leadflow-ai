@@ -34,13 +34,42 @@ export default function PlatformAdminDashboard({ onLogout }) {
     setPwError('');
     if (pwForm.newPw.length < 8) { setPwError('Password must be at least 8 characters'); return; }
     if (pwForm.newPw !== pwForm.confirm) { setPwError('Passwords do not match'); return; }
+    if (pwForm.current === pwForm.newPw) { setPwError('New password must be different from current password'); return; }
     try {
       await changePassword(pwForm.current, pwForm.newPw);
       setShowChangePw(false);
       setPwForm({ current: '', newPw: '', confirm: '' });
       alert('Password changed successfully.');
     } catch (err) {
-      setPwError(err.message || 'Failed to change password');
+      // Surface the real backend error verbatim. Previously we fell back
+      // to err.message which in production sometimes resolved to a
+      // minified runtime error (e.g. "r is not a function") when a code
+      // path threw before the API response was parsed. Log the full
+      // error so the browser console has the full context, and show a
+      // human-readable message that distinguishes between known codes
+      // and unknown failures.
+      // eslint-disable-next-line no-console
+      console.error('[changePassword] failed:', {
+        status: err?.status,
+        code: err?.code,
+        message: err?.message,
+        error: err,
+      });
+      let msg;
+      if (err?.status === 401 || err?.code === 'INVALID_PASSWORD') {
+        msg = 'Current password is incorrect. Double-check the temporary password from your deploy logs.';
+      } else if (err?.status === 400 || err?.code === 'VALIDATION_ERROR') {
+        msg = err.message || 'Invalid password. New password must be at least 8 characters.';
+      } else if (err?.status === 404) {
+        msg = 'Your session is no longer valid. Please sign out and sign in again.';
+      } else if (err?.status >= 500) {
+        msg = 'Server error while changing password. Please try again in a moment.';
+      } else if (err?.message && !/is not a function/i.test(err.message)) {
+        msg = err.message;
+      } else {
+        msg = 'Password change failed. Open your browser console for details.';
+      }
+      setPwError(msg);
     }
   };
 
@@ -140,20 +169,37 @@ export default function PlatformAdminDashboard({ onLogout }) {
       {user?.mustChangePassword && (
         <div style={overlayStyle}>
           <div style={modalStyle}>
-            <h3 style={{ color: '#f1f5f9', marginBottom: '8px' }}>Password Change Required</h3>
+            <h3 style={{ color: '#f1f5f9', marginBottom: '6px' }}>Password Change Required</h3>
+            <div style={{
+              color: '#c4b5fd', fontSize: '12px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              background: '#1e1b4b', padding: '6px 10px', borderRadius: '6px',
+              marginBottom: '12px', display: 'inline-block',
+            }}>
+              {user?.email}
+            </div>
             <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '16px' }}>
-              Your password was reset by an administrator. Please set a new password to continue.
+              This account was issued a temporary password during platform
+              bootstrap. Choose a new password to continue. The current
+              password is the one printed in the deploy log.
             </p>
-            {pwError && <div style={{ background: '#7f1d1d', color: '#fecaca', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '12px' }}>{pwError}</div>}
-            <label style={labelDarkStyle}>Current Password</label>
-            <input type="password" value={pwForm.current} onChange={e => setPwForm({ ...pwForm, current: e.target.value })} style={inputDarkStyle} />
-            <label style={labelDarkStyle}>New Password</label>
-            <input type="password" value={pwForm.newPw} onChange={e => setPwForm({ ...pwForm, newPw: e.target.value })} style={inputDarkStyle} />
-            <label style={labelDarkStyle}>Confirm New Password</label>
-            <input type="password" value={pwForm.confirm} onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })} style={inputDarkStyle} />
+            {pwError && (
+              <div style={{
+                background: '#7f1d1d', color: '#fecaca', padding: '10px 12px',
+                borderRadius: '6px', fontSize: '13px', marginBottom: '12px',
+                lineHeight: 1.4,
+              }}>
+                {pwError}
+              </div>
+            )}
+            <label style={labelDarkStyle}>Current (temporary) password</label>
+            <input type="password" value={pwForm.current} onChange={e => setPwForm({ ...pwForm, current: e.target.value })} style={inputDarkStyle} autoComplete="current-password" autoFocus />
+            <label style={labelDarkStyle}>New password</label>
+            <input type="password" value={pwForm.newPw} onChange={e => setPwForm({ ...pwForm, newPw: e.target.value })} style={inputDarkStyle} autoComplete="new-password" placeholder="At least 8 characters" />
+            <label style={labelDarkStyle}>Confirm new password</label>
+            <input type="password" value={pwForm.confirm} onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })} style={inputDarkStyle} autoComplete="new-password" />
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
               <button onClick={handleLogout} style={actionBtnStyle('#475569')}>Sign Out</button>
-              <button onClick={handleChangePassword} disabled={!pwForm.current || !pwForm.newPw} style={actionBtnStyle('#7c3aed')}>Change Password</button>
+              <button onClick={handleChangePassword} disabled={!pwForm.current || !pwForm.newPw || !pwForm.confirm} style={actionBtnStyle('#7c3aed')}>Change Password</button>
             </div>
           </div>
         </div>

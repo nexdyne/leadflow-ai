@@ -21,6 +21,7 @@ import LabPDFImport from './components/LabPDFImport';
 import OfflineStatusBar from './components/OfflineStatusBar';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import LoginPage from './components/auth/LoginPage';
+import PlatformAdminLoginPage from './components/auth/PlatformAdminLoginPage';
 import ProjectDashboard from './components/ProjectDashboard';
 import TeamManagement from './components/TeamManagement';
 import InviteAcceptPage from './components/InviteAcceptPage';
@@ -335,12 +336,21 @@ function AppContent() {
   }
 
   // ─── Platform Admin ─────────────────────────────────────
+  // /admin and /admin/* URLs route to the dedicated PlatformAdminLoginPage
+  // (a visually distinct dark-themed surface — deliberately NOT reusing
+  // the inspector LoginPage so there is zero chance an inspector lands
+  // here by accident and thinks it's the regular sign-in).
   const isPlatformAdmin = user?.role === 'platform_admin' || user?.isPlatformAdmin;
   if (platformLoginMode && !isAuthenticated) {
     return (
-      <LoginPage
-        isPlatformLogin
-        onPlatformSwitch={() => setPlatformLoginMode(false)}
+      <PlatformAdminLoginPage
+        onInspectorSwitch={() => {
+          setPlatformLoginMode(false);
+          // Drop the user onto the real inspector /login URL so the
+          // inspector surface renders cleanly and the back button works.
+          window.history.replaceState(null, '', '/login');
+          setLoginMode(true);
+        }}
       />
     );
   }
@@ -350,10 +360,12 @@ function AppContent() {
 
   // ─── Client Portal ──────────────────────────────────────
   // Show portal if: URL is /portal, OR user is logged in with client role
+  // NOTE: no onPlatformSwitch prop — inspector/client surfaces never
+  // expose a path to the admin console. Admins reach /admin by URL.
   const isClient = user?.role === 'client';
   if (portalMode || isClient) {
     if (!isAuthenticated) {
-      return <LoginPage isClientPortal onPortalSwitch={() => setPortalMode(false)} onPlatformSwitch={() => { setPortalMode(false); setPlatformLoginMode(true); }} onForgotPassword={() => setForgotPasswordMode(true)} />;
+      return <LoginPage isClientPortal onPortalSwitch={() => setPortalMode(false)} onForgotPassword={() => setForgotPasswordMode(true)} />;
     }
     if (isClient) {
       return <ClientPortal />;
@@ -363,12 +375,14 @@ function AppContent() {
   }
 
   // ─── Inspector login ────────────────────────────────────
+  // Same rule as above: no onPlatformSwitch, no Platform Admin footer
+  // link. The inspector login is strictly for inspectors.
   if (!isAuthenticated) {
     // Show landing page at root path, login page at /login
     if (!loginMode && isLandingPath()) {
       return <LandingPage />;
     }
-    return <LoginPage onPortalSwitch={() => setPortalMode(true)} onPlatformSwitch={() => setPlatformLoginMode(true)} onForgotPassword={() => setForgotPasswordMode(true)} />;
+    return <LoginPage onPortalSwitch={() => setPortalMode(true)} onForgotPassword={() => setForgotPasswordMode(true)} />;
   }
 
   // ─── Force password change for admin-created accounts ──
