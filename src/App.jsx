@@ -365,7 +365,7 @@ function AppContent() {
   const isClient = user?.role === 'client';
   if (portalMode || isClient) {
     if (!isAuthenticated) {
-      return <LoginPage isClientPortal onPortalSwitch={() => setPortalMode(false)} onForgotPassword={() => setForgotPasswordMode(true)} />;
+      return <LoginPage isClientPortal showPlatformAdminLink onPortalSwitch={() => setPortalMode(false)} onForgotPassword={() => setForgotPasswordMode(true)} />;
     }
     if (isClient) {
       return <ClientPortal />;
@@ -382,7 +382,7 @@ function AppContent() {
     if (!loginMode && isLandingPath()) {
       return <LandingPage />;
     }
-    return <LoginPage onPortalSwitch={() => setPortalMode(true)} onForgotPassword={() => setForgotPasswordMode(true)} />;
+    return <LoginPage showPlatformAdminLink onPortalSwitch={() => setPortalMode(true)} onForgotPassword={() => setForgotPasswordMode(true)} />;
   }
 
   // ─── Force password change for admin-created accounts ──

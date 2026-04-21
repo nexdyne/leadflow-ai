@@ -4,19 +4,38 @@ import { useAuth } from '../../hooks/useAuth.jsx';
 /**
  * LoginPage — inspector and client portal sign-in / registration.
  *
- * Platform admin sign-in is intentionally NOT handled here. It lives in
- * PlatformAdminLoginPage (mounted at /admin) so the two surfaces are
- * visually and structurally different — an inspector should never be
- * able to arrive here and confuse this for the admin console, and an
- * admin should always know to hit a separate URL.
+ * Platform admin sign-in is intentionally NOT handled in this component;
+ * that lives in PlatformAdminLoginPage (mounted at /admin) so the two
+ * surfaces are visually and structurally different — an inspector should
+ * never confuse this page for the admin console.
+ *
+ * HOWEVER, for operators of the platform (there will usually be one or
+ * two humans at the company who are Platform Admins), we expose a
+ * discreet secondary entry point to /admin *outside* the sign-in card
+ * — intentionally separate from the inspector↔client portal switcher
+ * that lives inside the card. A legitimate platform admin who lands on
+ * /login by muscle memory can find it without clutter for everyone
+ * else, and the link is a proper anchor to /admin so it is bookmarkable
+ * and works with middle-click / right-click → Open in new tab.
  *
  * Props:
- *   inviteMessage    — optional banner for team-invite flows
- *   isClientPortal   — when true, render the "Client Portal" variant
- *   onPortalSwitch   — toggle between Inspector and Client portal
- *   onForgotPassword — optional: show Forgot Password link + callback
+ *   inviteMessage           — optional banner for team-invite flows
+ *   isClientPortal          — when true, render the "Client Portal" variant
+ *   onPortalSwitch          — toggle between Inspector and Client portal
+ *                             (rendered INSIDE the card, near the top)
+ *   onForgotPassword        — optional: show Forgot Password link + callback
+ *   showPlatformAdminLink   — when true, render the discreet /admin link
+ *                             BELOW the card. Opt-in so the invite-flow
+ *                             variant (brand-new invited users) does not
+ *                             see an admin entry point.
  */
-export default function LoginPage({ inviteMessage, isClientPortal, onPortalSwitch, onForgotPassword }) {
+export default function LoginPage({
+  inviteMessage,
+  isClientPortal,
+  onPortalSwitch,
+  onForgotPassword,
+  showPlatformAdminLink,
+}) {
   const { login, register } = useAuth();
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
@@ -67,8 +86,11 @@ export default function LoginPage({ inviteMessage, isClientPortal, onPortalSwitc
     <div style={{
       minHeight: '100vh',
       display: 'flex',
+      flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
+      padding: '24px',
+      gap: '0',
       background: isClientPortal
         ? 'linear-gradient(135deg, #2d3748 0%, #4a5568 50%, #718096 100%)'
         : 'linear-gradient(135deg, #1a365d 0%, #2c5282 50%, #2b6cb0 100%)',
@@ -259,6 +281,32 @@ export default function LoginPage({ inviteMessage, isClientPortal, onPortalSwitc
           </button>
         </form>
       </div>
+
+      {/*
+        Discreet Platform Admin entry point.
+        Lives OUTSIDE and BELOW the sign-in card so it is visually
+        separated from the inspector↔client portal switcher inside the
+        card. Rendered as a real <a href="/admin"> so it is bookmarkable,
+        middle-clickable, right-click → "Open in new tab"-able, and
+        accessible to keyboard / screen-reader users. Extremely muted
+        by default (low opacity); reveals on hover & keyboard focus.
+      */}
+      {showPlatformAdminLink && (
+        <a
+          href="/admin"
+          style={adminLinkStyle}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.5'; }}
+          onFocus={(e) => { e.currentTarget.style.opacity = '1'; }}
+          onBlur={(e) => { e.currentTarget.style.opacity = '0.5'; }}
+          aria-label="Platform Admin — restricted access"
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ marginRight: '5px', verticalAlign: '-1px' }}>
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+          Platform Admin
+        </a>
+      )}
     </div>
   );
 }
@@ -272,4 +320,23 @@ const inputStyle = {
   width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0',
   borderRadius: '6px', fontSize: '14px', outline: 'none',
   boxSizing: 'border-box', transition: 'border-color 0.2s',
+};
+
+const adminLinkStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  marginTop: '28px',
+  padding: '6px 12px',
+  color: 'rgba(255, 255, 255, 0.85)',
+  opacity: 0.5,
+  fontSize: '11px',
+  fontWeight: 500,
+  letterSpacing: '0.6px',
+  textTransform: 'uppercase',
+  textDecoration: 'none',
+  borderRadius: '6px',
+  border: '1px solid rgba(255, 255, 255, 0.12)',
+  background: 'rgba(255, 255, 255, 0.04)',
+  transition: 'opacity 0.2s, border-color 0.2s',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
 };
