@@ -1,33 +1,18 @@
-# Cloudflare setup (abatecomply.com + nexdynegroup.com)
+# Cloudflare setup (abatecomply.com)
 
-LeadFlow AI uses Cloudflare for DNS and edge protection on both
-domains. This doc is the click-path for wiring each domain to the
-right backend (Railway for the app, Resend/Cloudflare Email Routing
-for mail).
+LeadFlow AI runs on a single Cloudflare zone: `abatecomply.com`. That
+one zone serves three roles:
 
----
+1. **DNS + edge protection** for the app (CNAME to Railway)
+2. **Outbound mail auth** for Resend (SPF/DKIM/DMARC + bounce MX)
+3. **DNS for inbound Google Workspace mail** at `admin@abatecomply.com`
+   and `support@abatecomply.com`
 
-## Domain layout
+This doc is the click-path for wiring each of those up.
 
-| Domain                  | Role                                              |
-| ----------------------- | ------------------------------------------------- |
-| `abatecomply.com`       | LeadFlow AI public app **and** Resend sender (root verified in Resend 2026-04-13) |
-| `nexdynegroup.com`      | NexDyne Consulting brand site + real inboxes (`support@`, `admin@`) |
-| `mail.nexdynegroup.com` | Subdomain for future NexDyne Consulting outbound (not yet set up) |
-
-Both root zones live on the same Cloudflare account. If they don't
-yet, add the missing zone under **Websites → Add a site**, choose the
-**Pro** plan (David already pays for this), and update the registrar
-nameservers to the two Cloudflare NS records shown. Propagation is
-~2 hours.
-
-**Why the two domains are asymmetric:** `abatecomply.com`'s only role
-is the LeadFlow app, so sending outbound mail from the root is clean
-— there's no other product sharing its sending reputation. But
-`nexdynegroup.com` is a consulting brand zone with real receive-only
-inboxes (`support@`, `admin@`) on the root, so its outbound has to
-live on a subdomain (`mail.nexdynegroup.com`) to keep Resend's bounce
-MX from colliding with Cloudflare Email Routing's inbound MX.
+> **Historical note:** Earlier plans split LeadFlow (abatecomply.com)
+> from NexDyne Consulting (nexdynegroup.com). That's out — see
+> `EMAIL_SETUP.md` section 1 for why. Everything now lives on one zone.
 
 ---
 
@@ -45,8 +30,8 @@ Railway gives you a public hostname like
 
    | Type  | Name  | Target                      | Proxy   |
    | ----- | ----- | --------------------------- | ------- |
-   | CNAME | `@`   | `<your>.up.railway.app`     | 🟠 Proxied |
-   | CNAME | `www` | `abatecomply.com`           | 🟠 Proxied |
+   | CNAME | `@`   | `<your>.up.railway.app`     | Proxied |
+   | CNAME | `www` | `abatecomply.com`           | Proxied |
 
    Cloudflare supports CNAME at the zone apex (CNAME flattening), so
    `@ → CNAME` works fine.
@@ -68,118 +53,81 @@ should show a green "Active" badge.
 
 ---
 
-## 2. `nexdynegroup.com` → marketing site (if any)
+## 2. Resend outbound on the same zone
 
-If you don't have a separate marketing site yet, leave the root
-pointing at a placeholder. For now the only thing the zone *needs*
-is the `mail.nexdynegroup.com` subdomain wired up for Resend.
+Verified in Resend 2026-04-13. Four records live on the
+`abatecomply.com` zone. The trick is that they coexist with Google
+Workspace's inbound MX — SPF just needs BOTH includes, and the bounce
+MX at priority 10 sits behind Google's priority 1.
 
-If you later add a marketing site on Webflow / Framer / Vercel, add
-its CNAME under `@` and `www` the same way as abatecomply.com.
+| Type | Name                    | Content                                                           | Proxy |
+| ---- | ----------------------- | ----------------------------------------------------------------- | ----- |
+| MX   | `@`                     | `feedback-smtp.us-east-1.amazonses.com` (priority 10)             | DNS only |
+| TXT  | `@`                     | `v=spf1 include:amazonses.com include:_spf.google.com ~all`       | DNS only |
+| TXT  | `resend._domainkey`     | `p=…` (long DKIM string Resend generates)                         | DNS only |
+| TXT  | `_dmarc`                | `v=DMARC1; p=none; rua=mailto:support@abatecomply.com`            | DNS only |
 
----
+All four must be **Proxy status: DNS only** (gray cloud). Orange-cloud
+proxying rewrites TXT/MX content and breaks validation.
 
-## 3. Resend sending domains (outbound)
-
-**`abatecomply.com` root (LeadFlow) — already live.** Verified in
-Resend 2026-04-13. Four DNS records are on the abatecomply.com zone:
-MX (bounces), SPF TXT, DKIM TXT (`resend._domainkey`), DMARC TXT
-(`_dmarc`). All with **Proxy status: DNS only** (gray cloud). No
-action needed unless Resend flags the domain as failing — then check
-that nothing has orange-cloud-proxied those records.
-
-### `mail.nexdynegroup.com` (future — NexDyne Consulting outbound)
-
-Do this when NexDyne Consulting actually needs to send mail. LeadFlow
-doesn't depend on it.
-
-1. In Resend, **Domains → Add Domain → `mail.nexdynegroup.com`**.
-   Important: **subdomain only**, not the bare `nexdynegroup.com`.
-   The root is reserved for inbound mail (Email Routing) — adding
-   Resend's MX on the root would collide with the inbound MX.
-2. Resend shows four records. In Cloudflare DNS for the
-   `nexdynegroup.com` zone, add each one **exactly** as shown, with
-   **Proxy status: DNS only** (gray cloud). Orange cloud rewrites
-   TXT/MX content and breaks mail.
-
-   Expected shape (Resend generates the exact DKIM string for you):
-
-   | Type | Name                           | Content                              |
-   | ---- | ------------------------------ | ------------------------------------ |
-   | MX   | `mail`                         | `feedback-smtp.us-east-1.amazonses.com` (priority 10) |
-   | TXT  | `mail`                         | `v=spf1 include:amazonses.com ~all`  |
-   | TXT  | `resend._domainkey.mail`       | `p=…` (long DKIM string)             |
-   | TXT  | `_dmarc.mail`                  | `v=DMARC1; p=none; rua=mailto:support@nexdynegroup.com` |
-
-   The DMARC `rua=` pointing at `support@nexdynegroup.com` is fine —
-   that's just the reporting inbox and doesn't need to be on the
-   sending domain.
-
-3. Back in Resend click **Verify DNS Records**. Wait 5-15 min. Once
-   all four show ✅, the subdomain can send.
-
-4. **One Resend API key sends from any verified domain** in the
-   account — you don't need a new key. The `FROM_EMAIL` env var in
-   whatever system uses NexDyne's outbound (different project from
-   LeadFlow) is what pins sending to `mail.nexdynegroup.com`.
-   LeadFlow's `FROM_EMAIL` stays pointed at `noreply@abatecomply.com`.
+**Why only one SPF record:** SPF requires exactly one TXT record at
+the zone root. If you have two — one for Resend, one for Google — mail
+servers will hard-fail SPF for both. Combine them into a single record
+with both `include:` directives.
 
 ---
 
-## 4. Receiving mail at `support@nexdynegroup.com` and `admin@nexdynegroup.com`
+## 3. Google Workspace inbound on the same zone
 
-Resend handles **outbound only**. For inbound mail you have two good
-options:
+Workspace provides the mailboxes for `admin@abatecomply.com` and
+`support@abatecomply.com`. Workspace's DNS requirement is a single MX
+record at the zone root:
 
-### Option A: Cloudflare Email Routing (free, simplest)
-1. In Cloudflare → the `nexdynegroup.com` zone → **Email → Email
-   Routing → Get Started**.
-2. Cloudflare auto-adds the required MX and SPF records. It will
-   warn you if your existing records conflict — let it resolve the
-   conflict by replacing them.
-3. Under **Routing rules**, create two custom addresses:
-   - `support@nexdynegroup.com` → forwards to your personal inbox
-   - `admin@nexdynegroup.com` → forwards to your personal inbox
-4. Verify the destination inbox (Cloudflare sends a confirmation
-   email you have to click).
+| Type | Name | Content                       | Priority | Proxy |
+| ---- | ---- | ----------------------------- | -------- | ----- |
+| MX   | `@`  | `smtp.google.com`             | 1        | DNS only |
 
-Limits: Cloudflare Email Routing is **forwarding only** — you can
-reply from your personal inbox but the reply will go out from that
-personal address, not from `support@nexdynegroup.com`. Fine for
-low-volume triage, awkward once a real team is handling support.
+(Older Workspace docs list five separate records pointing at
+`aspmx.l.google.com` + four `altN.aspmx.l.google.com`. The single
+`smtp.google.com` is the newer default — either shape works, don't
+mix them.)
 
-### Option B: Google Workspace or Fastmail (paid, proper)
-If you want a real mailbox at `support@nexdynegroup.com` that you can
-log into and reply from:
-1. Sign up for Google Workspace ($6/user/mo) or Fastmail ($5/user/mo).
-2. They'll give you MX + SPF records. Delete Cloudflare Email Routing
-   if you had it on, then add the provider's records.
-3. **Important:** if you also have Resend's MX record on `mail.`,
-   those are on the subdomain — they don't conflict with MX records
-   on the root `nexdynegroup.com`.
+**Why Google and Resend's bounce MX coexist:** MX priority determines
+which server gets tried first for incoming mail. Google is priority 1;
+Resend's bounce MX is priority 10. Incoming mail always hits Google.
+The priority-10 record only matters for Amazon SES bounce callbacks,
+which are the only thing ever delivered there. Nothing routes to your
+Workspace inbox through the priority-10 record.
 
-Recommendation: start with **Option A** (free, 10-minute setup). Move
-to Option B when support volume justifies a real mailbox.
+Verify with a manual MX lookup (e.g. <https://mxtoolbox.com> or
+`dig MX abatecomply.com` from a machine with working DNS):
+
+```
+abatecomply.com. MX 1  smtp.google.com.
+abatecomply.com. MX 10 feedback-smtp.us-east-1.amazonses.com.
+```
+
+If you only see one, the other record didn't get saved. Add it.
 
 ---
 
-## 5. Cloudflare security settings (both zones)
+## 4. Cloudflare security settings
 
-Under each zone's **Security** section:
+Under **Security**:
 
 - **WAF → Managed rules**: on, default ruleset. Cloudflare Pro's
   managed rules block most garden-variety attacks without config.
 - **Bots → Bot Fight Mode**: on. The landing page support form has
   its own rate limiting (10/hour/IP) but Bot Fight Mode filters out
   obvious scrapers before they hit your origin.
-- **DDoS → HTTP DDoS attack protection**: on (it's on by default).
+- **DDoS → HTTP DDoS attack protection**: on (default).
 - **Rate Limiting Rules**: skip unless you see abuse. The 10/hour/IP
   limit in the support controller is usually enough.
 
 Under **Speed**:
 - **Brotli**: on
-- **Auto Minify** (HTML/CSS/JS): on — harmless, small wins
-- **Early Hints**: on (only matters once you serve HTML from edge)
+- **Auto Minify** (HTML/CSS/JS): on
+- **Early Hints**: on
 
 Under **Caching → Configuration**:
 - **Browser Cache TTL**: Respect existing headers (Railway sends its
@@ -188,11 +136,10 @@ Under **Caching → Configuration**:
 
 ---
 
-## 6. Page Rules (optional)
+## 5. Page Rules (optional)
 
-For abatecomply.com you usually don't need page rules — the default
-behavior is correct. One useful one if you add a blog or marketing
-path:
+Usually unnecessary — Cloudflare's defaults are correct. One useful
+pair if you ever add a blog or marketing path:
 
 - `abatecomply.com/blog/*` → Cache Level: Cache Everything
 - `abatecomply.com/api/*`  → Cache Level: Bypass (Railway sends
@@ -200,7 +147,7 @@ path:
 
 ---
 
-## 7. Verifying the whole picture
+## 6. Verifying the whole picture
 
 After all of the above, you should be able to:
 
@@ -208,15 +155,14 @@ After all of the above, you should be able to:
   over HTTPS with a Cloudflare cert.
 - **Hit the API:** `https://abatecomply.com/api/health` returns
   `{"status":"ok","timestamp":"…"}`.
-- **Submit support:** the landing page form succeeds and an alert
-  email appears in `support@nexdynegroup.com` within 30 seconds. The
-  "from" on that alert should be `noreply@abatecomply.com`.
-- **Sign in:** `admin@nexdynegroup.com` with the password you
-  captured in the bootstrap log lets you into Platform Admin.
-- **No MX conflicts:** `dig MX abatecomply.com` shows only Resend's
-  bounce MX (`feedback-smtp.us-east-1.amazonses.com`). `dig MX
-  nexdynegroup.com` shows either the Cloudflare Email Routing MX
-  (Option A) or your Workspace/Fastmail MX (Option B) — not both.
-  The future `mail.nexdynegroup.com` subdomain (when you add it) has
-  its own MX on the subdomain that doesn't collide with the
-  nexdynegroup.com root MX.
+- **Submit support:** the landing page form succeeds, an ack email
+  arrives in the submitter's inbox within 30 seconds, and an alert
+  email arrives in the Google Workspace inbox for
+  `support@abatecomply.com`. The "from" on both is
+  `noreply@abatecomply.com`.
+- **Sign in:** `admin@abatecomply.com` with the password you captured
+  in the bootstrap log lets you into Platform Admin.
+- **MX shape:** `dig MX abatecomply.com` (or mxtoolbox) returns
+  exactly two records — Google at priority 1 and Resend's bounce MX
+  at priority 10. Anything else means a stray record needs cleaning
+  up.

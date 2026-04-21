@@ -8,15 +8,18 @@ import { hashPassword } from './hash.js';
  * Runs at server startup (from server.js) IFF env var BOOTSTRAP_PLATFORM_ADMIN=1.
  *
  * Flow David uses on Railway:
- *   1. First deploy creates admin@nexdynegroup.com + support@nexdynegroup.com
- *      with a disabled password hash (migration 027).
+ *   1. First deploy creates admin@abatecomply.com + support@abatecomply.com
+ *      with a disabled password hash (migration 029 — migration 027 originally
+ *      used @nexdynegroup.com, 029 moves them to @abatecomply.com because the
+ *      nexdynegroup zone isn't on the same Cloudflare account; abatecomply has
+ *      Google Workspace and is the live inbox provider).
  *   2. David adds BOOTSTRAP_PLATFORM_ADMIN=1 in Railway variables and Redeploys.
  *   3. On boot this helper detects the disabled hash, generates a random
  *      24-character password, bcrypts it, updates the row, and prints:
  *
  *        ======================================================================
  *         PLATFORM ADMIN PASSWORD BOOTSTRAPPED
- *         email:    admin@nexdynegroup.com
+ *         email:    admin@abatecomply.com
  *         password: XXXXXXXXXXXXXXXXXXXXXXXX
  *
  *         Log in, you will be forced to change this password on first use.
@@ -35,8 +38,8 @@ import { hashPassword } from './hash.js';
  */
 
 const ACCOUNTS = [
-  { email: 'admin@nexdynegroup.com',   label: 'primary' },
-  { email: 'support@nexdynegroup.com', label: 'backup'  },
+  { email: 'admin@abatecomply.com',   label: 'primary' },
+  { email: 'support@abatecomply.com', label: 'backup'  },
 ];
 
 function strongPassword(len = 24) {

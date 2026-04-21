@@ -10,7 +10,7 @@ const VALID_CATEGORIES = ['general', 'bug', 'billing', 'feature', 'onboarding', 
 const VALID_STATUSES   = ['new', 'open', 'waiting', 'resolved', 'closed'];
 const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
 
-const SUPPORT_INBOX = process.env.SUPPORT_INBOX || 'support@nexdynegroup.com';
+const SUPPORT_INBOX = process.env.SUPPORT_INBOX || 'support@abatecomply.com';
 
 async function requirePlatformAdmin(userId) {
   const r = await query(

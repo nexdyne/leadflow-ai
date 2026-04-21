@@ -3,7 +3,7 @@
 -- Lets anyone (logged in or not) submit a support request from the public
 -- landing page. Tickets are persisted here, admin triages them in the
 -- platform dashboard, and each submission fires a notification email to
--- support@nexdynegroup.com (and an acknowledgement to the submitter).
+-- support@abatecomply.com (and an acknowledgement to the submitter).
 
 CREATE TABLE IF NOT EXISTS support_tickets (
   id            SERIAL PRIMARY KEY,

@@ -907,8 +907,8 @@ function SupportSection() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
                 <p style={{ fontSize: 13, color: COLORS.gray500, margin: 0, flex: 1, minWidth: 240 }}>
                   Or email us directly at{' '}
-                  <a href="mailto:support@nexdynegroup.com" style={{ color: COLORS.orange, fontWeight: 600, textDecoration: 'none' }}>
-                    support@nexdynegroup.com
+                  <a href="mailto:support@abatecomply.com" style={{ color: COLORS.orange, fontWeight: 600, textDecoration: 'none' }}>
+                    support@abatecomply.com
                   </a>
                 </p>
                 <button type="submit" disabled={status === 'submitting'}
@@ -984,7 +984,7 @@ function Footer() {
         { label: 'Free plan', href: '/login?register=true' },
         { label: 'Inspector signup', href: '/login?register=true' },
         { label: 'Client portal', href: '/portal' },
-        { label: 'Request a demo', href: 'mailto:support@nexdynegroup.com' },
+        { label: 'Request a demo', href: 'mailto:support@abatecomply.com' },
       ],
     },
     {
@@ -1019,7 +1019,7 @@ function Footer() {
       title: 'COMPANY',
       links: [
         { label: 'About LeadFlow AI', href: '#company' },
-        { label: 'Contact support', href: 'mailto:support@nexdynegroup.com' },
+        { label: 'Contact support', href: 'mailto:support@abatecomply.com' },
         { label: 'System status', href: '#' },
         { label: 'Careers', href: '#' },
       ],

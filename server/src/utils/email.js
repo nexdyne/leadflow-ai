@@ -445,7 +445,7 @@ export async function sendAccountSuspendedEmail(to, fullName, reason) {
       <div style="color:#64748b; font-size:13px; margin-bottom:8px;">Reason:</div>
       <div style="color:#1e293b; font-size:14px; line-height:1.6;">${reason}</div>
     </div>
-    ${buttonHtml('Contact Support', 'mailto:admin@nexdynegroup.com', '#dc2626')}
+    ${buttonHtml('Contact Support', 'mailto:admin@abatecomply.com', '#dc2626')}
   `);
 
   return sendEmail(to, subject, html, 'account_suspended');
@@ -836,7 +836,7 @@ export async function sendClientAccessRevokedEmail(to, clientName, projectName, 
     <p style="color:#475569; font-size:13px; line-height:1.6; margin:16px 0 0;">
       If you believe this was a mistake, please contact your inspector or our support team.
     </p>
-    ${buttonHtml('Contact Support', 'mailto:admin@nexdynegroup.com')}
+    ${buttonHtml('Contact Support', 'mailto:admin@abatecomply.com')}
   `);
 
   return sendEmail(to, subject, html, 'client_access_revoked');
@@ -1060,7 +1060,7 @@ export async function sendAdminPasswordResetEmail(to, fullName, tempPassword, re
     ${buttonHtml('Sign In', `${APP_URL}/login`, '#2563eb')}
     <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #dc2626;">
       <p style="color:#7f1d1d; font-size:13px; line-height:1.6; margin:0;">
-        <strong>Didn't request this?</strong> Contact your administrator or reply to <a href="mailto:support@nexdynegroup.com" style="color:#dc2626;">support@nexdynegroup.com</a> immediately.
+        <strong>Didn't request this?</strong> Contact your administrator or reply to <a href="mailto:support@abatecomply.com" style="color:#dc2626;">support@abatecomply.com</a> immediately.
       </p>
     </div>
     <p style="color:#94a3b8; font-size:12px; margin:16px 0 0; text-align:center;">
