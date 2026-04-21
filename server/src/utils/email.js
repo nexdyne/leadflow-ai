@@ -974,6 +974,70 @@ export async function sendLoginAlertEmail(to, fullName, ipAddress, userAgent, lo
 
 
 // ═══════════════════════════════════════════════════════════
+//  SUPPORT REQUEST — new ticket notification to support inbox
+// ═══════════════════════════════════════════════════════════
+
+export async function sendSupportTicketAlert(to, ticket) {
+  const {
+    id, name, email, phone, company, category, subject, message,
+    pageUrl, userAgent, ipAddress,
+  } = ticket;
+  const mailSubject = `[Support #${id}] ${subject || '(no subject)'}`;
+  const html = emailLayout(mailSubject, `
+    <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">New Support Request</h2>
+    <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
+      A new ticket was submitted from the public support form.
+    </p>
+    <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:16px; margin:16px 0;">
+      <div style="color:#1e40af; font-size:14px; font-weight:600; margin-bottom:8px;">Ticket #${id}</div>
+      <div style="color:#475569; font-size:13px; line-height:1.8;">
+        <strong>Category:</strong> ${category || 'general'}<br>
+        <strong>Subject:</strong> ${subject || '(none)'}
+      </div>
+    </div>
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin:16px 0;">
+      <div style="color:#1e293b; font-size:14px; font-weight:600; margin-bottom:8px;">Submitter</div>
+      <div style="color:#475569; font-size:13px; line-height:1.8;">
+        <strong>Name:</strong> ${name || '(not provided)'}<br>
+        <strong>Email:</strong> <a href="mailto:${email}" style="color:#2563eb;">${email}</a><br>
+        ${phone ? `<strong>Phone:</strong> ${phone}<br>` : ''}
+        ${company ? `<strong>Company:</strong> ${company}<br>` : ''}
+      </div>
+    </div>
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin:16px 0;">
+      <div style="color:#1e293b; font-size:14px; font-weight:600; margin-bottom:8px;">Message</div>
+      <div style="color:#475569; font-size:13px; line-height:1.7; white-space:pre-wrap;">${(message || '').replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;')}</div>
+    </div>
+    <div style="color:#94a3b8; font-size:12px; line-height:1.6;">
+      <strong>Context:</strong> ${pageUrl || 'n/a'} — ${ipAddress || 'unknown IP'}<br>
+      <strong>User-Agent:</strong> ${userAgent ? userAgent.substring(0, 160) : 'unknown'}
+    </div>
+    ${buttonHtml('Open in Admin Dashboard', `${APP_URL}/admin`, '#2563eb')}
+  `);
+  return sendEmail(to, mailSubject, html, 'support_ticket_alert');
+}
+
+export async function sendSupportTicketAck(to, name, ticketId, subject) {
+  const mailSubject = `We received your request (Ticket #${ticketId})`;
+  const html = emailLayout(mailSubject, `
+    <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">Support Request Received</h2>
+    <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
+      Hi ${name || 'there'}, thanks for reaching out to ${APP_NAME} support. We've received your request and will get back to you soon.
+    </p>
+    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #16a34a;">
+      <div style="color:#166534; font-size:14px; font-weight:600; margin-bottom:4px;">Ticket #${ticketId}</div>
+      <div style="color:#475569; font-size:13px;">${subject || '(no subject)'}</div>
+    </div>
+    <p style="color:#475569; font-size:13px; line-height:1.6;">
+      Our team typically responds within 1 business day. If your issue is urgent,
+      please reply to this email with additional detail.
+    </p>
+  `);
+  return sendEmail(to, mailSubject, html, 'support_ticket_ack');
+}
+
+
+// ═══════════════════════════════════════════════════════════
 //  ADMIN-TRIGGERED TEMPORARY PASSWORD
 // ═══════════════════════════════════════════════════════════
 

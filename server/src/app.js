@@ -12,6 +12,7 @@ import adminRoutes from './api/routes/admin.js';
 import notificationRoutes from './api/routes/notifications.js';
 import platformAdminRoutes from './api/routes/platformAdmin.js';
 import billingRoutes from './api/routes/billing.js';
+import supportRoutes from './api/routes/support.js';
 import { handleWebhook as handleStripeWebhook } from './api/controllers/billingController.js';
 import { errorHandler } from './api/middleware/errorHandler.js';
 
@@ -50,6 +51,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/platform', platformAdminRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/support', supportRoutes);
 
 // API 404
 app.use('/api/*', (_req, res) => {

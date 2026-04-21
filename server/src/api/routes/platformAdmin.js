@@ -9,6 +9,7 @@ import {
   listAuditLogs,
   getActiveAnnouncements, dismissAnnouncement,
 } from '../controllers/platformAdminController.js';
+import { listTickets, updateTicket } from '../controllers/supportController.js';
 
 const router = Router();
 
@@ -47,5 +48,9 @@ router.post('/announcements/:id/dismiss', dismissAnnouncement);
 
 // ─── Audit Logs ─────────────────────────────────────────
 router.get('/audit-logs', listAuditLogs);
+
+// ─── Support Tickets ────────────────────────────────────
+router.get('/support-tickets', listTickets);
+router.patch('/support-tickets/:id', updateTicket);
 
 export default router;
