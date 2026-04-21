@@ -22,6 +22,76 @@ const DESIGNATION_LABELS = {
   project_designer: 'Lead Project Designer',
 };
 
+// ─── Service lines a team can legally offer based on member credentials
+// Each service requires at least one VERIFIED member with the listed designation.
+// Citations:
+//  - Lead-Based Paint Inspection: 40 CFR 745.227(b), R 325.99207
+//  - Risk Assessment: 40 CFR 745.227(d)
+//  - Abatement Project: 40 CFR 745.227(e)(1) & (e)(6) — "a certified
+//    supervisor shall be onsite during all work site preparation and
+//    during the post-abatement cleanup" — plus workers
+//  - EBL Investigation: MDHHS LIRA-EBL per MCL 333.5474
+//  - HUD Clearance Examination: 24 CFR 35.1320 / 40 CFR 745.227(e)
+// ──────────────────────────────────────────────────────────────────────
+const SERVICE_LINES = [
+  {
+    id: 'inspection',
+    label: 'Lead-Based Paint Inspection',
+    required: ['lead_inspector'],
+    cite: '40 CFR 745.227(b) · R 325.99207',
+  },
+  {
+    id: 'risk_assessment',
+    label: 'Risk Assessment',
+    required: ['lead_risk_assessor'],
+    cite: '40 CFR 745.227(d)',
+  },
+  {
+    id: 'abatement',
+    label: 'Abatement Project',
+    // Supervisor is required onsite; workers must hold abatement_worker designation.
+    required: ['abatement_supervisor', 'abatement_worker'],
+    cite: '40 CFR 745.227(e)(1), (e)(6)',
+  },
+  {
+    id: 'ebl_investigation',
+    label: 'EBL Investigation',
+    required: ['ebl_investigator'],
+    cite: 'MDHHS LIRA-EBL · MCL 333.5474',
+  },
+  {
+    id: 'clearance',
+    label: 'HUD Clearance Examination',
+    // Clearance may be performed by a Lead Inspector, Risk Assessor, or
+    // (where state allows) a Clearance Technician — ANY of these satisfies.
+    requiredAny: ['lead_inspector', 'lead_risk_assessor', 'clearance_technician'],
+    cite: '24 CFR 35.1320 · 40 CFR 745.227(e)',
+  },
+];
+
+function computeTeamCapabilities(members) {
+  // Only count active members whose license is verified.
+  const verifiedSet = new Set();
+  (members || []).forEach(m => {
+    if (!m.designation) return;
+    if (m.licenseVerified) verifiedSet.add(m.designation);
+  });
+  return SERVICE_LINES.map(s => {
+    const hasAll = (s.required || []).every(d => verifiedSet.has(d));
+    const hasAny = (s.requiredAny || []).some(d => verifiedSet.has(d));
+    const canOffer = (s.required ? hasAll : true) && (s.requiredAny ? hasAny : true);
+    const missingAll = (s.required || []).filter(d => !verifiedSet.has(d));
+    return {
+      id: s.id,
+      label: s.label,
+      cite: s.cite,
+      canOffer,
+      missing: missingAll,
+      needsAny: s.requiredAny && !hasAny ? s.requiredAny : null,
+    };
+  });
+}
+
 export default function TeamManagement({ onBack }) {
   const { user, refreshProfile, setMemberLicense } = useAuth();
   const {
@@ -343,6 +413,58 @@ export default function TeamManagement({ onBack }) {
               )}
             </div>
           )}
+
+          {/* ─── Team Credential Coverage ───────────────────────
+              Tells the admin which service lines this team is legally
+              equipped to offer based on VERIFIED member designations.
+              Citations shown per row. A missing credential means the
+              team cannot lawfully bill that service in Michigan. */}
+          <div style={sectionCard}>
+            <h3 style={sectionTitle}>
+              Credential Coverage &mdash; Service Lines Team Can Offer
+            </h3>
+            {(() => {
+              const caps = computeTeamCapabilities(members);
+              const offered = caps.filter(c => c.canOffer).length;
+              return (
+                <>
+                  <div style={{ fontSize: '12px', color: '#718096', marginBottom: '10px' }}>
+                    {offered} of {caps.length} service line(s) covered by verified credentials.
+                    Services without coverage cannot be lawfully offered under
+                    40 CFR 745.227 / Michigan Part 54A.
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+                    {caps.map(c => (
+                      <div key={c.id} style={{
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: `1px solid ${c.canOffer ? '#9ae6b4' : '#feb2b2'}`,
+                        background: c.canOffer ? '#f0fff4' : '#fff5f5',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '13px', color: c.canOffer ? '#22543d' : '#822727' }}>
+                          <span style={{ fontSize: '14px' }}>{c.canOffer ? '✓' : '✕'}</span>
+                          {c.label}
+                        </div>
+                        {!c.canOffer && (
+                          <div style={{ fontSize: '11px', color: '#822727', marginTop: '4px' }}>
+                            {c.missing && c.missing.length > 0 && (
+                              <div>Missing verified: {c.missing.map(d => DESIGNATION_LABELS[d] || d).join(', ')}</div>
+                            )}
+                            {c.needsAny && (
+                              <div>Need any of: {c.needsAny.map(d => DESIGNATION_LABELS[d] || d).join(' / ')}</div>
+                            )}
+                          </div>
+                        )}
+                        <div style={{ fontSize: '10px', color: '#718096', marginTop: '4px', fontStyle: 'italic' }}>
+                          {c.cite}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
 
           {/* Members Section */}
           <div style={sectionCard}>
