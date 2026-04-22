@@ -47,6 +47,10 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
   const [shareMsg, setShareMsg] = useState('');
   const [shareError, setShareError] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
+  // C50: refs for share modal a11y — auto-focus the email input on open,
+  // restore focus to the opener (Rename/Share row button) on close.
+  const shareEmailInputRef = useRef(null);
+  const sharePreviousFocusRef = useRef(null);
 
   // C48: inline rename state — replaces the jarring window.alert() pattern
   // and surfaces errors/success in the dashboard UI like the share modal.
@@ -77,6 +81,41 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
       }
     };
   }, [renameError]);
+
+  // C50: share modal a11y — when the modal opens, remember what had
+  // focus (usually the "Share" row button), move focus into the email
+  // input so keyboard users don't have to Tab past the dashboard to
+  // reach it, and wire Escape to close (matching the overlay click
+  // behavior). On close, restore focus to the opener. No focus trap
+  // here — the modal has only three focusable elements (email input,
+  // Close, Share Project) and the overlay-click + Escape exits give
+  // keyboard users a way out. We can tighten this later if needed.
+  useEffect(() => {
+    if (!shareModal) return undefined;
+    sharePreviousFocusRef.current = document.activeElement;
+    // Defer one tick so the input element is actually mounted.
+    const focusTimer = setTimeout(() => {
+      if (shareEmailInputRef.current) {
+        shareEmailInputRef.current.focus();
+      }
+    }, 0);
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setShareModal(null);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      clearTimeout(focusTimer);
+      document.removeEventListener('keydown', onKey);
+      const prev = sharePreviousFocusRef.current;
+      if (prev && typeof prev.focus === 'function') {
+        try { prev.focus(); } catch (_) { /* opener may have unmounted */ }
+      }
+      sharePreviousFocusRef.current = null;
+    };
+  }, [shareModal]);
 
   // Offline inspections from IndexedDB
   const [offlineInspections, setOfflineInspections] = useState([]);
@@ -713,8 +752,13 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
       {/* Share with Client Modal */}
       {shareModal && (
         <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) setShareModal(null); }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-            <div style={{ fontWeight: '700', fontSize: '16px', color: '#1a365d', marginBottom: '4px' }}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-modal-title"
+            style={{ background: '#fff', borderRadius: '12px', padding: '24px', maxWidth: '420px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
+          >
+            <div id="share-modal-title" style={{ fontWeight: '700', fontSize: '16px', color: '#1a365d', marginBottom: '4px' }}>
               Share Project with Client
             </div>
             <div style={{ fontSize: '13px', color: '#718096', marginBottom: '16px' }}>
@@ -734,11 +778,24 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
               e.preventDefault();
               setShareError(''); setShareMsg(''); setShareLoading(true);
               try {
-                await apiCall('POST', '/client/share', {
+                // C50: surface both backend paths. The server returns
+                // status='shared' or 're_shared' when the email belongs
+                // to an existing client account, or status='invited'
+                // when it had to send a /invite/client/:token link
+                // email. Prior behavior said "Project shared with..."
+                // unconditionally, which was misleading when the
+                // actual outcome was an invite.
+                const resp = await apiCall('POST', '/client/share', {
                   projectId: shareModal.projectId,
                   clientEmail: shareEmail,
                 });
-                setShareMsg(`Project shared with ${shareEmail}!`);
+                if (resp && resp.status === 'invited') {
+                  setShareMsg(`Invite email sent to ${shareEmail}. They'll get a link to create an account and see the project.`);
+                } else if (resp && resp.status === 're_shared') {
+                  setShareMsg(`${shareEmail} already had access — re-sent the notification.`);
+                } else {
+                  setShareMsg(`Project shared with ${shareEmail}!`);
+                }
                 setShareEmail('');
               } catch (err) {
                 setShareError(err.message || 'Failed to share project');
@@ -746,22 +803,26 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
                 setShareLoading(false);
               }
             }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#4a5568', marginBottom: '4px' }}>
+              <label htmlFor="share-modal-client-email" style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#4a5568', marginBottom: '4px' }}>
                 Client Email Address
               </label>
               <input
+                ref={shareEmailInputRef}
+                id="share-modal-client-email"
+                name="clientEmail"
                 type="email"
                 value={shareEmail}
                 onChange={(e) => setShareEmail(e.target.value)}
                 placeholder="client@example.com"
                 required
+                autoComplete="email"
                 style={{
                   width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0',
                   borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
                 }}
               />
               <div style={{ fontSize: '11px', color: '#a0aec0', marginTop: '4px', marginBottom: '16px' }}>
-                The client must have an account registered at /portal. They will see the project in their dashboard.
+                If the client already has a LeadFlow account we'll share it immediately. If not, we'll email them an invite link to create one.
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button type="button" onClick={() => setShareModal(null)} style={btnSecondary}>Close</button>

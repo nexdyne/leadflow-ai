@@ -29,6 +29,7 @@ function ProjectInfoTab({ state, dispatch }) {
             PUT /projects/:id endpoint. */}
         <input
           type="text"
+          name="projectName"
           placeholder="e.g., 123 Main St – HUD Risk Assessment (Smith)"
           maxLength={200}
           value={projectInfo.projectName || ''}
