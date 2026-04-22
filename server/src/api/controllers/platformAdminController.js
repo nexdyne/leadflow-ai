@@ -270,6 +270,12 @@ export async function suspendUser(req, res) {
   const { id } = req.params;
   const { reason } = req.body;
 
+  // C53: block self-suspend. Without this check, WHERE is_platform_admin = false
+  // silently succeeds with 0 rows affected and the admin sees a fake "success".
+  if (parseInt(id, 10) === req.user.userId) {
+    return res.status(400).json({ error: 'Cannot suspend your own account — ask another platform admin.' });
+  }
+
   await query(
     `UPDATE users SET suspended_at = NOW(), suspended_reason = $1, active = false, updated_at = NOW()
      WHERE id = $2 AND is_platform_admin = false`,
@@ -307,6 +313,12 @@ export async function reactivateUser(req, res) {
 
   const { id } = req.params;
 
+  // C53: a platform admin's own row should never be "suspended" in the first place
+  // (suspendUser blocks self-suspend), but guard here too for consistency.
+  if (parseInt(id, 10) === req.user.userId) {
+    return res.status(400).json({ error: 'Cannot reactivate your own account — your account isn\'t managed from this list.' });
+  }
+
   await query(
     `UPDATE users SET suspended_at = NULL, suspended_reason = NULL, active = true, updated_at = NOW()
      WHERE id = $1`,
@@ -334,10 +346,15 @@ export async function deleteUser(req, res) {
 
   const { id } = req.params;
 
+  // C53: block self-deactivation before any DB work.
+  if (parseInt(id, 10) === req.user.userId) {
+    return res.status(400).json({ error: 'Cannot deactivate your own account — ask another platform admin.' });
+  }
+
   // Don't delete platform admins
   const check = await query('SELECT is_platform_admin FROM users WHERE id = $1', [id]);
   if (check.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-  if (check.rows[0].is_platform_admin) return res.status(403).json({ error: 'Cannot delete platform admin' });
+  if (check.rows[0].is_platform_admin) return res.status(403).json({ error: 'Cannot deactivate platform admin' });
 
   await query(
     `UPDATE users SET active = false, suspended_at = NOW(), suspended_reason = 'Account deleted by platform admin', updated_at = NOW()

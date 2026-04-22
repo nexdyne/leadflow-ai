@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiCall } from '../api/apiConfig.js';
 import { useAuth } from '../hooks/useAuth.jsx';
 
@@ -237,12 +237,12 @@ function OverviewPanel({ dashboard, onRefresh }) {
   if (!dashboard) return <div style={{ color: '#94a3b8' }}>No data available</div>;
 
   const stats = [
-    { label: 'Total Users', value: dashboard.users.total, color: '#3b82f6', sub: `${dashboard.users.inspectors} inspectors, ${dashboard.users.clients} clients` },
-    { label: 'Organizations', value: dashboard.organizations.total, color: '#8b5cf6', sub: `${dashboard.organizations.pro + dashboard.organizations.enterprise} paid` },
-    { label: 'Active Teams', value: dashboard.teams.active, color: '#10b981', sub: `${dashboard.teams.total} total` },
-    { label: 'Projects', value: dashboard.projects.active, color: '#f59e0b', sub: `${dashboard.projects.drafts} drafts` },
-    { label: 'Signups (7d)', value: dashboard.recentSignups, color: '#ec4899', sub: 'Last 7 days' },
-    { label: 'Active Today', value: dashboard.activeToday, color: '#06b6d4', sub: 'Logged in today' },
+    { label: 'Total Users', value: dashboard.users.total ?? 0, color: '#3b82f6', sub: `${dashboard.users.inspectors ?? 0} inspectors, ${dashboard.users.clients ?? 0} clients` },
+    { label: 'Organizations', value: dashboard.organizations.total ?? 0, color: '#8b5cf6', sub: `${(dashboard.organizations.pro ?? 0) + (dashboard.organizations.enterprise ?? 0)} paid` },
+    { label: 'Active Teams', value: dashboard.teams.active ?? 0, color: '#10b981', sub: `${dashboard.teams.total ?? 0} total` },
+    { label: 'Projects', value: dashboard.projects.active ?? 0, color: '#f59e0b', sub: `${dashboard.projects.drafts ?? 0} drafts` },
+    { label: 'Signups (7d)', value: dashboard.recentSignups ?? 0, color: '#ec4899', sub: 'Last 7 days' },
+    { label: 'Active in 24h', value: dashboard.activeToday ?? 0, color: '#06b6d4', sub: 'Last 24 hours' },
   ];
 
   return (
@@ -267,13 +267,13 @@ function OverviewPanel({ dashboard, onRefresh }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div>
             <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '6px' }}>Suspended Accounts</div>
-            <div style={{ fontSize: '24px', fontWeight: '700', color: dashboard.users.suspended > 0 ? '#ef4444' : '#10b981' }}>
-              {dashboard.users.suspended}
+            <div style={{ fontSize: '24px', fontWeight: '700', color: (dashboard.users.suspended ?? 0) > 0 ? '#ef4444' : '#10b981' }}>
+              {dashboard.users.suspended ?? 0}
             </div>
           </div>
           <div>
             <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '6px' }}>Inactive Accounts</div>
-            <div style={{ fontSize: '24px', fontWeight: '700', color: '#f59e0b' }}>{dashboard.users.inactive}</div>
+            <div style={{ fontSize: '24px', fontWeight: '700', color: '#f59e0b' }}>{dashboard.users.inactive ?? 0}</div>
           </div>
         </div>
       </div>
@@ -296,8 +296,11 @@ function UsersPanel() {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState(null);
   const [actionModal, setActionModal] = useState(null); // { type: 'suspend'|'resetPw', userId }
+  // C53: sequence-guard so a slow old search response can't overwrite a newer one.
+  const usersFetchIdRef = useRef(0);
 
   const loadUsers = useCallback(async () => {
+    const thisFetch = ++usersFetchIdRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ page, limit: 25 });
@@ -305,12 +308,15 @@ function UsersPanel() {
       if (roleFilter) params.set('role', roleFilter);
       if (statusFilter) params.set('status', statusFilter);
       const data = await apiCall('GET', `/platform/users?${params}`);
+      // Guard: if a newer search / page / filter fetch has started, drop this response.
+      if (usersFetchIdRef.current !== thisFetch) return;
       setUsers(data.users);
       setTotal(data.total);
     } catch (err) {
+      if (usersFetchIdRef.current !== thisFetch) return;
       console.error('Failed to load users:', err);
     } finally {
-      setLoading(false);
+      if (usersFetchIdRef.current === thisFetch) setLoading(false);
     }
   }, [page, search, roleFilter, statusFilter]);
 
@@ -1298,10 +1304,22 @@ function CreateAnnouncementModal({ onSave, onCancel }) {
         <h3 style={{ color: '#f1f5f9', marginBottom: '16px' }}>New Announcement</h3>
 
         <label style={labelDarkStyle}>Title</label>
-        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} style={inputDarkStyle} placeholder="Announcement title..." />
+        <input
+          value={form.title}
+          onChange={e => setForm({ ...form, title: e.target.value })}
+          style={inputDarkStyle}
+          placeholder="Announcement title..."
+          maxLength={255}
+        />
 
         <label style={labelDarkStyle}>Message</label>
-        <textarea value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} style={{ ...inputDarkStyle, height: '100px', resize: 'vertical' }} placeholder="Write your announcement..." />
+        <textarea
+          value={form.body}
+          onChange={e => setForm({ ...form, body: e.target.value })}
+          style={{ ...inputDarkStyle, height: '100px', resize: 'vertical' }}
+          placeholder="Write your announcement..."
+          maxLength={5000}
+        />
 
         <label style={labelDarkStyle}>Type</label>
         <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })} style={inputDarkStyle}>
