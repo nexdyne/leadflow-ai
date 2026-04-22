@@ -65,6 +65,17 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
   const [renameError, setRenameError] = useState('');
   const renameErrorTimerRef = useRef(null);
 
+  // C51: Mark Complete / Mark Draft — per-row toggle lock + single-timer
+  // error banner (same useRef + useEffect pattern as renameError above so
+  // overlapping toggles can't clear the banner early). Backend PUT
+  // /projects/:id already accepts { isDraft: boolean } — no migration,
+  // no new endpoint. draftTogglingId holds the id of the row whose PUT
+  // is currently in flight so we can disable its button and block
+  // double-taps without leaking state into React's render loop.
+  const [draftToggleError, setDraftToggleError] = useState('');
+  const draftToggleErrorTimerRef = useRef(null);
+  const [draftTogglingId, setDraftTogglingId] = useState(null);
+
   useEffect(() => {
     if (!renameError) return undefined;
     if (renameErrorTimerRef.current) {
@@ -81,6 +92,24 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
       }
     };
   }, [renameError]);
+
+  // C51: same single-timer discipline for the draft-toggle banner.
+  useEffect(() => {
+    if (!draftToggleError) return undefined;
+    if (draftToggleErrorTimerRef.current) {
+      clearTimeout(draftToggleErrorTimerRef.current);
+    }
+    draftToggleErrorTimerRef.current = setTimeout(() => {
+      setDraftToggleError('');
+      draftToggleErrorTimerRef.current = null;
+    }, 5000);
+    return () => {
+      if (draftToggleErrorTimerRef.current) {
+        clearTimeout(draftToggleErrorTimerRef.current);
+        draftToggleErrorTimerRef.current = null;
+      }
+    };
+  }, [draftToggleError]);
 
   // C50: share modal a11y — when the modal opens, remember what had
   // focus (usually the "Share" row button), move focus into the email
@@ -264,6 +293,34 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
     }
   }
 
+  // C51: flip a project's is_draft flag via PUT /projects/:id. The
+  // backend update endpoint (projectController.js) already accepts
+  // { isDraft: boolean } and writes it to the projects.is_draft column,
+  // so this is a pure frontend add — no migration, no new endpoint.
+  //
+  // draftTogglingId is a one-slot lock: if any row is mid-toggle, we
+  // refuse further clicks. This prevents a double-tap from firing two
+  // conflicting PUTs (the second would reach the server with the
+  // intended final state already applied by the first, causing a
+  // no-op flash or worse a boomerang back to the old state if the
+  // user's click raced the refetch). Disabling the button via
+  // draftTogglingId === p.id makes the per-row UX clear: the clicked
+  // row shows "…" until the server answers.
+  async function handleToggleDraft(p) {
+    if (draftTogglingId) return;
+    setDraftTogglingId(p.id);
+    try {
+      await apiCall('PUT', `/projects/${p.id}`, { isDraft: !p.isDraft });
+      setDraftToggleError('');
+      if (viewMode === 'team' && currentTeam) loadProjects('', currentTeam.id);
+      else loadProjects('');
+    } catch (err) {
+      setDraftToggleError('Failed to update status: ' + (err.message || 'unknown error'));
+    } finally {
+      setDraftTogglingId(null);
+    }
+  }
+
   async function handleDelete(projectId) {
     try {
       await deleteProject(projectId);
@@ -399,6 +456,16 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
           background: '#fed7d7', color: '#c53030', fontSize: '13px',
         }}>
           {renameError}
+        </div>
+      )}
+
+      {/* C51: inline draft-toggle error (Mark Complete / Mark Draft). */}
+      {draftToggleError && (
+        <div style={{
+          padding: '8px 14px', borderRadius: '6px', marginBottom: '12px',
+          background: '#fed7d7', color: '#c53030', fontSize: '13px',
+        }}>
+          {draftToggleError}
         </div>
       )}
 
@@ -733,6 +800,22 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
                     style={{ ...btnSmall, color: '#2c5282' }}
                   >
                     Share
+                  </button>
+                  {/* C51: flip is_draft via PUT /projects/:id. Color matches
+                      the target state — green when the action will complete,
+                      amber when the action will re-draft (matches the DRAFT
+                      badge palette). */}
+                  <button
+                    onClick={() => handleToggleDraft(p)}
+                    disabled={draftTogglingId === p.id}
+                    style={{
+                      ...btnSmall,
+                      color: p.isDraft ? '#276749' : '#975a16',
+                      opacity: draftTogglingId === p.id ? 0.6 : 1,
+                      cursor: draftTogglingId === p.id ? 'wait' : 'pointer',
+                    }}
+                  >
+                    {draftTogglingId === p.id ? '…' : (p.isDraft ? 'Mark Complete' : 'Mark Draft')}
                   </button>
                   {confirmDelete === p.id ? (
                     <>
