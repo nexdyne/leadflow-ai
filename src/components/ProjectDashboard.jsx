@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth.jsx';
 import { useProject } from '../hooks/useProject.js';
 import { useTeam } from '../hooks/useTeam.js';
@@ -50,7 +50,33 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
 
   // C48: inline rename state — replaces the jarring window.alert() pattern
   // and surfaces errors/success in the dashboard UI like the share modal.
+  // C49: single-timer auto-clear via useRef + useEffect. Previously each
+  // rename attempt scheduled its own setTimeout inside handleRename;
+  // overlapping attempts stacked timers and the oldest timer cleared a
+  // newer banner before the user could read it (live-captured as the
+  // "banner vanishes after ~3s instead of 5s" bug in the CASE 8 smoke
+  // test on abatecomply.com). Browser background-tab throttling made it
+  // worse. Now the timer lives in a ref, is reset on every renameError
+  // change, and is cancelled on unmount via the cleanup fn.
   const [renameError, setRenameError] = useState('');
+  const renameErrorTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!renameError) return undefined;
+    if (renameErrorTimerRef.current) {
+      clearTimeout(renameErrorTimerRef.current);
+    }
+    renameErrorTimerRef.current = setTimeout(() => {
+      setRenameError('');
+      renameErrorTimerRef.current = null;
+    }, 5000);
+    return () => {
+      if (renameErrorTimerRef.current) {
+        clearTimeout(renameErrorTimerRef.current);
+        renameErrorTimerRef.current = null;
+      }
+    };
+  }, [renameError]);
 
   // Offline inspections from IndexedDB
   const [offlineInspections, setOfflineInspections] = useState([]);
@@ -168,8 +194,8 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
     if (!trimmed) return; // don't allow blanking the name
     if (trimmed === current) return; // no-op
     if (trimmed.length > 200) {
+      // C49: auto-clear handled by the useEffect above; no inline setTimeout.
       setRenameError('Project name is too long (max 200 characters). Please shorten and try again.');
-      setTimeout(() => setRenameError(''), 5000);
       return;
     }
     try {
@@ -194,8 +220,8 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
       if (viewMode === 'team' && currentTeam) loadProjects('', currentTeam.id);
       else loadProjects('');
     } catch (err) {
+      // C49: auto-clear handled by the useEffect above; no inline setTimeout.
       setRenameError('Failed to rename project: ' + (err.message || 'unknown error'));
-      setTimeout(() => setRenameError(''), 5000);
     }
   }
 
