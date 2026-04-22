@@ -356,12 +356,12 @@ function UsersPanel() {
   };
 
   const handleDelete = async (userId) => {
-    if (!confirm('Permanently deactivate this account? This cannot be undone.')) return;
+    if (!confirm('Deactivate this account? The user will lose access immediately. You can reactivate them later from this list.')) return;
     try {
       await apiCall('DELETE', `/platform/users/${userId}`);
       loadUsers();
     } catch (err) {
-      alert('Failed to delete: ' + err.message);
+      alert('Failed to deactivate: ' + err.message);
     }
   };
 
@@ -415,7 +415,7 @@ function UsersPanel() {
               <tr key={u.id} style={{ borderBottom: '1px solid #1e293b' }}>
                 <td style={cellStyle}>
                   <div style={{ fontWeight: '500', color: '#f1f5f9' }}>{u.fullName || '—'}</div>
-                  {u.isPrimaryAdmin && <span style={badgeStyle('#7c3aed')}>Primary Admin</span>}
+                  {u.isPrimaryAdmin && <span style={badgeStyle('#fbbf24')} title="First inspector on this organization — not a platform admin">Org Primary</span>}
                 </td>
                 <td style={cellStyle}>{u.email}</td>
                 <td style={cellStyle}>
@@ -444,7 +444,7 @@ function UsersPanel() {
                       <button onClick={() => setActionModal({ type: 'suspend', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#f59e0b')}>Suspend</button>
                     )}
                     <button onClick={() => setActionModal({ type: 'resetPw', userId: u.id, userName: u.fullName || u.email, userEmail: u.email })} style={actionBtnStyle('#3b82f6')}>Reset PW</button>
-                    <button onClick={() => handleDelete(u.id)} style={actionBtnStyle('#ef4444')}>Delete</button>
+                    <button onClick={() => handleDelete(u.id)} style={actionBtnStyle('#ef4444')} title="Deactivate this account (reversible)">Deactivate</button>
                   </div>
                 </td>
               </tr>
