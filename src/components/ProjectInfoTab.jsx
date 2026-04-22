@@ -24,9 +24,13 @@ function ProjectInfoTab({ state, dispatch }) {
         <div className="text-xs text-gray-500 mb-2">
           Used in your Projects list and on generated reports. Leave blank to use the property address.
         </div>
+        {/* C48: maxLength=200 matches backend VARCHAR(255) project_name
+            column with headroom. Over-long names previously 500'd the
+            PUT /projects/:id endpoint. */}
         <input
           type="text"
           placeholder="e.g., 123 Main St – HUD Risk Assessment (Smith)"
+          maxLength={200}
           value={projectInfo.projectName || ''}
           onChange={(e) => handleChange('projectName', e.target.value)}
           className="border rounded px-3 py-2 w-full text-base"

@@ -48,6 +48,10 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
   const [shareError, setShareError] = useState('');
   const [shareLoading, setShareLoading] = useState(false);
 
+  // C48: inline rename state — replaces the jarring window.alert() pattern
+  // and surfaces errors/success in the dashboard UI like the share modal.
+  const [renameError, setRenameError] = useState('');
+
   // Offline inspections from IndexedDB
   const [offlineInspections, setOfflineInspections] = useState([]);
   const [loadingOffline, setLoadingOffline] = useState(false);
@@ -121,29 +125,77 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
       // C46: pass projectId up so subsequent saves UPDATE this row
       // instead of inserting a duplicate. data.stateData may or may not
       // carry the cloud id (legacy rows don't), so we pass it explicitly.
-      onOpenProject(data.stateData || data, projectId);
+      //
+      // C48: BUG FIX — heal column↔stateData drift on every open.
+      // Before this fix, `handleRename` wrote only the `project_name`
+      // column; `state_data.projectInfo.projectName` stayed empty. On
+      // reopen, the editor's Project Name input read empty, and the
+      // next Save Progress would overwrite the column via the
+      // propertyAddress fallback in handleManualSave. We now merge the
+      // column value (source of truth for the list) into
+      // stateData.projectInfo.projectName before dispatching, so the
+      // editor shows the correct name and the next save keeps it.
+      const sd = (data && data.stateData) || data || {};
+      const pi = sd.projectInfo || {};
+      const columnName = data && typeof data.projectName === 'string' ? data.projectName : '';
+      const mergedState = {
+        ...sd,
+        projectInfo: {
+          ...pi,
+          projectName: pi.projectName || columnName || '',
+        },
+      };
+      onOpenProject(mergedState, projectId);
     } catch (err) {
       alert('Failed to load project: ' + err.message);
     }
   }
 
-  // C46: in-place rename from the My Projects list. Uses a browser
-  // prompt() for now (UI polish pass will replace with a proper modal).
-  // The backend PATCH-style handler accepts projectName-only updates, so
-  // we don't need the project's full stateData here.
+  // C46/C48: in-place rename from the My Projects list. C48 changes:
+  //  (a) read-modify-write: GET the current stateData, patch
+  //      projectInfo.projectName, then PUT both the column and the
+  //      updated JSON. Stops future column↔JSON drift at write time
+  //      instead of relying on the handleOpen merge alone.
+  //  (b) enforce a max length so an over-long name can't 500 the
+  //      backend's VARCHAR project_name column.
+  //  (c) inline errors (setRenameError) instead of window.alert so the
+  //      UX matches the share modal.
   async function handleRename(p) {
     const current = p.projectName || p.propertyAddress || '';
-    const next = window.prompt('Rename this project', current);
+    const next = window.prompt('Rename this project (max 200 chars)', current);
     if (next === null) return; // cancelled
     const trimmed = next.trim();
     if (!trimmed) return; // don't allow blanking the name
     if (trimmed === current) return; // no-op
+    if (trimmed.length > 200) {
+      setRenameError('Project name is too long (max 200 characters). Please shorten and try again.');
+      setTimeout(() => setRenameError(''), 5000);
+      return;
+    }
     try {
-      await apiCall('PUT', `/projects/${p.id}`, { projectName: trimmed });
+      // Read-modify-write: load the full project so we can patch
+      // projectInfo.projectName inside stateData before writing back.
+      let stateData = null;
+      try {
+        const full = await apiCall('GET', `/projects/${p.id}`);
+        const sd = full.stateData || {};
+        const pi = sd.projectInfo || {};
+        stateData = { ...sd, projectInfo: { ...pi, projectName: trimmed } };
+      } catch (_) {
+        // If GET fails (e.g. offline), fall back to column-only PUT —
+        // handleOpen will heal the drift next time the project opens.
+        stateData = null;
+      }
+      const body = stateData
+        ? { projectName: trimmed, stateData }
+        : { projectName: trimmed };
+      await apiCall('PUT', `/projects/${p.id}`, body);
+      setRenameError('');
       if (viewMode === 'team' && currentTeam) loadProjects('', currentTeam.id);
       else loadProjects('');
     } catch (err) {
-      alert('Failed to rename project: ' + err.message);
+      setRenameError('Failed to rename project: ' + (err.message || 'unknown error'));
+      setTimeout(() => setRenameError(''), 5000);
     }
   }
 
@@ -272,6 +324,16 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
           fontSize: '13px',
         }}>
           {saveMsg}
+        </div>
+      )}
+
+      {/* C48: inline rename error — replaces the prior window.alert(). */}
+      {renameError && (
+        <div style={{
+          padding: '8px 14px', borderRadius: '6px', marginBottom: '12px',
+          background: '#fed7d7', color: '#c53030', fontSize: '13px',
+        }}>
+          {renameError}
         </div>
       )}
 
@@ -560,13 +622,18 @@ export default function ProjectDashboard({ onOpenProject, onNewProject, onManage
                   <div style={{ fontWeight: '600', color: '#2d3748' }}>
                     {/* C46: prefer inspector-assigned projectName, then
                         property address, then a generic placeholder so
-                        no project ever renders as just "undefined". */}
+                        no project ever renders as just "undefined".
+                        C48: explicit space before the DRAFT badge so
+                        the title doesn't read "Untitled ProjectDRAFT". */}
                     {p.projectName || p.propertyAddress || 'Untitled Project'}
                     {p.isDraft && (
-                      <span style={{
-                        fontSize: '11px', background: '#fefcbf', color: '#975a16',
-                        padding: '2px 6px', borderRadius: '4px', marginLeft: '8px',
-                      }}>DRAFT</span>
+                      <>
+                        {' '}
+                        <span style={{
+                          fontSize: '11px', background: '#fefcbf', color: '#975a16',
+                          padding: '2px 6px', borderRadius: '4px', marginLeft: '8px',
+                        }}>DRAFT</span>
+                      </>
                     )}
                     {viewMode === 'team' && p.ownerName && (
                       <span style={{

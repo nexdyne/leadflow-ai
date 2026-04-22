@@ -258,6 +258,12 @@ function AppContent() {
   // Local save is attempted first and treated as the source of truth for
   // the UI's "Saved" indicator; cloud save failure is surfaced separately
   // without discarding local progress.
+  // C48: track whether the last save attempt had a local-OK / cloud-fail
+  // split. When true, the status indicator keeps the "Saved locally"
+  // line visible and appends a yellow "Cloud sync failed" note instead
+  // of collapsing to a generic "Save failed" that hid the local line.
+  const [cloudSyncFailed, setCloudSyncFailed] = React.useState(false);
+
   const handleManualSave = async () => {
     // C47: synchronous re-entry guard — stops double-click races before
     // React has a chance to propagate `disabled={saveStatus === 'saving'}`
@@ -265,25 +271,34 @@ function AppContent() {
     // project, producing duplicate rows in My Projects.
     if (savingRef.current) return;
 
+    // C48: previously, if no _inspectionId existed yet, we set the id and
+    // returned early expecting a useEffect to re-trigger — but the
+    // auto-save effect is local-only and never calls the manual save
+    // path. Users had to click Save Progress twice on a pristine state.
+    // Now we assign the id synchronously via dispatch AND continue in
+    // the same call using a local copy of state with the new id merged
+    // in. saveProject / saveInspection both accept the local object.
+    let stateForSave = state;
     if (!state._inspectionId) {
       const newId = 'insp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      const createdAt = new Date().toISOString();
       dispatch({ type: 'SET_INSPECTION_META', payload: {
         _inspectionId: newId,
-        _createdAt: new Date().toISOString()
+        _createdAt: createdAt,
       }});
-      // Will re-trigger via useEffect once ID is set
-      return;
+      stateForSave = { ...state, _inspectionId: newId, _createdAt: createdAt };
     }
 
     savingRef.current = true;
     try {
       setSaveStatus('saving');
+      setCloudSyncFailed(false);
       isMetaUpdateRef.current = true;
 
       // 1) Local IndexedDB save — never blocks on network.
       let localOk = false;
       try {
-        await saveInspection(state._inspectionId, state);
+        await saveInspection(stateForSave._inspectionId, stateForSave);
         localOk = true;
         dispatch({ type: 'SET_INSPECTION_META', payload: { _lastSaved: new Date().toISOString() }});
       } catch (err) {
@@ -298,17 +313,22 @@ function AppContent() {
       //    indicator can say "Saved locally at X · Cloud-synced at Y".
       if (isAuthenticated) {
         try {
-          const pi = state.projectInfo || {};
+          const pi = stateForSave.projectInfo || {};
           const cloudName = (pi.projectName && pi.projectName.trim())
             || (pi.propertyAddress && pi.propertyAddress.trim())
             || 'Untitled Project';
           const teamId = (currentTeam && currentTeam.id) ? currentTeam.id : null;
-          await saveProject(cloudName, state, true, teamId);
+          await saveProject(cloudName, stateForSave, true, teamId);
           setLastCloudSavedAt(new Date().toISOString());
         } catch (err) {
           console.error('Cloud save failed (local save succeeded):', err);
-          // Local save is complete — indicate partial success to the user.
-          setSaveStatus('error');
+          // C48: split status — local IS saved, cloud is not. Keep the
+          // "Saved locally" line so inspectors know their work isn't
+          // lost, and surface a yellow cloud-failed note. Previous
+          // behavior collapsed to setSaveStatus('error') alone, hiding
+          // the local line entirely.
+          setCloudSyncFailed(true);
+          setSaveStatus('saved');
           setShowSaveToast(false);
           return;
         }
@@ -328,9 +348,22 @@ function AppContent() {
   };
 
   const handleBackToDashboard = async () => {
+    // C48: respect the shared savingRef so a Save Progress in flight
+    // doesn't race with the dashboard-exit flush. Without this, an
+    // in-flight POST from handleManualSave + a second POST from
+    // handleBackToDashboard could both start before either completes,
+    // producing a duplicate cloud row. If a save is in flight, we wait
+    // a tick for it to settle and skip the redundant save — the
+    // in-flight one covers the same state.
+    if (savingRef.current) {
+      setCurrentView('dashboard');
+      return;
+    }
     if (state._inspectionId) {
+      savingRef.current = true;
       try {
         setSaveStatus('saving');
+        setCloudSyncFailed(false);
         await saveInspection(state._inspectionId, state);
         // C46: also flush to cloud on dashboard exit so the newly-typed
         // project name / fields are visible in My Projects immediately.
@@ -346,16 +379,45 @@ function AppContent() {
             setLastCloudSavedAt(new Date().toISOString());
           } catch (err) {
             console.error('Cloud save on dashboard exit failed:', err);
+            // C48: same local-OK / cloud-failed split as handleManualSave.
+            setCloudSyncFailed(true);
           }
         }
         setSaveStatus('saved');
       } catch (err) {
         console.error('Failed to save before dashboard:', err);
         setSaveStatus('error');
+      } finally {
+        savingRef.current = false;
       }
     }
     setCurrentView('dashboard'); // FIX 5
   };
+
+  // C48: warn the inspector before they refresh or close the tab while
+  // there is unsaved work in the editor. We only arm the handler when
+  // the status reflects real pending work (unsaved edits or a prior
+  // failure). Browsers ignore our custom message and show their own
+  // generic prompt, but returning a truthy value is enough to trigger
+  // the confirmation dialog. Without this, a stray Cmd+W after typing
+  // in a tab silently discards in-memory edits.
+  useEffect(() => {
+    const editorIsDirty =
+      currentView === 'inspection' &&
+      state._inspectionId &&
+      (saveStatus === 'unsaved' || saveStatus === 'saving' || saveStatus === 'error' || cloudSyncFailed);
+
+    if (!editorIsDirty) return;
+
+    const handler = (e) => {
+      e.preventDefault();
+      // Required for Chrome/Edge to actually prompt.
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [currentView, state._inspectionId, saveStatus, cloudSyncFailed]);
 
   // Auto-save: debounce 2s after any state change
   useEffect(() => {
@@ -870,11 +932,21 @@ function AppContent() {
                     {saveStatus === 'saved' && state._lastSaved && (
                       <span className="inline-flex flex-col">
                         <span>{'Saved locally: ' + new Date(state._lastSaved).toLocaleTimeString()}</span>
-                        <span className={lastCloudSavedAt ? 'text-green-700' : 'text-yellow-700'}>
-                          {lastCloudSavedAt
-                            ? 'Cloud-synced: ' + new Date(lastCloudSavedAt).toLocaleTimeString()
-                            : 'Not yet cloud-synced — click Save Progress'}
-                        </span>
+                        {/* C48: three cases for the cloud line —
+                            (a) cloud sync failed on last attempt → red, keep local line up so inspector knows work isn't lost
+                            (b) cloud sync succeeded → green with timestamp
+                            (c) never cloud-synced yet (auto-save only so far) → yellow hint */}
+                        {cloudSyncFailed ? (
+                          <span className="text-red-700 font-medium">
+                            Cloud sync failed — work is saved on this device, click Save Progress to retry
+                          </span>
+                        ) : (
+                          <span className={lastCloudSavedAt ? 'text-green-700' : 'text-yellow-700'}>
+                            {lastCloudSavedAt
+                              ? 'Cloud-synced: ' + new Date(lastCloudSavedAt).toLocaleTimeString()
+                              : 'Not yet cloud-synced — click Save Progress'}
+                          </span>
+                        )}
                       </span>
                     )}
                     {saveStatus === 'saving' && 'Saving…'}
