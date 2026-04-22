@@ -510,18 +510,24 @@ function OrganizationsPanel() {
   const [loading, setLoading] = useState(true);
   const [editingOrg, setEditingOrg] = useState(null);
 
+  // C54: sequence-guard so a slow old search response can't overwrite a newer one.
+  const orgsFetchIdRef = useRef(0);
+
   const loadOrgs = useCallback(async () => {
+    const thisFetch = ++orgsFetchIdRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit: 50 });
       if (search) params.set('search', search);
       const data = await apiCall('GET', `/platform/organizations?${params}`);
+      if (orgsFetchIdRef.current !== thisFetch) return;
       setOrgs(data.organizations);
       setTotal(data.total);
     } catch (err) {
+      if (orgsFetchIdRef.current !== thisFetch) return;
       console.error('Failed to load orgs:', err);
     } finally {
-      setLoading(false);
+      if (orgsFetchIdRef.current === thisFetch) setLoading(false);
     }
   }, [search]);
 
@@ -975,18 +981,24 @@ function AuditPanel() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // C54: cancelled-flag pattern (matches RevenuePanel) so fast Prev/Next clicks
+    // can't let a slow old-page response overwrite the current-page one.
+    let cancelled = false;
     (async () => {
       setLoading(true);
       try {
         const data = await apiCall('GET', `/platform/audit-logs?page=${page}&limit=50`);
+        if (cancelled) return;
         setLogs(data.logs);
         setTotal(data.total);
       } catch (err) {
+        if (cancelled) return;
         console.error('Failed to load audit logs:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [page]);
 
   return (
@@ -1385,7 +1397,11 @@ function SupportPanel() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
 
+  // C54: sequence-guard so a slow old filter/search response can't overwrite a newer one.
+  const ticketsFetchIdRef = useRef(0);
+
   const load = useCallback(async () => {
+    const thisFetch = ++ticketsFetchIdRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ page, limit: 25 });
@@ -1394,13 +1410,15 @@ function SupportPanel() {
       if (category) params.set('category', category);
       if (search)   params.set('search', search);
       const data = await apiCall('GET', `/platform/support-tickets?${params}`);
+      if (ticketsFetchIdRef.current !== thisFetch) return;
       setTickets(data.tickets);
       setTotal(data.total);
       setSummary(data.summary || summary);
     } catch (err) {
+      if (ticketsFetchIdRef.current !== thisFetch) return;
       console.error('Failed to load support tickets:', err);
     } finally {
-      setLoading(false);
+      if (ticketsFetchIdRef.current === thisFetch) setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, status, priority, category, search]);
