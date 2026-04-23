@@ -286,18 +286,81 @@ function OverviewPanel({ dashboard, onRefresh }) {
 //  USERS PANEL
 // ═══════════════════════════════════════════════════════════
 
+// C58: UsersPanel redesign. The prior two-dropdown filter UI
+// (Status × Role) collapsed everyone non-active into a single "Suspended"
+// visual, making the Active list feel polluted with deactivated rows.
+//
+// New structure:
+//   1. A segmented 3-tab control at the top shows Active / Suspended /
+//      Deactivated with live counts from GET /platform/users/summary.
+//      Active is the default tab.
+//   2. A role-chip row beneath the tabs offers All / Inspectors / Clients,
+//      each chip labeled with its count within the currently-selected
+//      tab. Chips are a secondary filter, not a tertiary dropdown.
+//   3. A single search input filters inside the current tab + chip.
+//   4. Per-row action buttons are contextualized by status (no more
+//      showing "Suspend" on an already-suspended row).
+//   5. Each tab has a distinct empty state.
+//   6. URL query string reflects tab + chip + search so reload /
+//      back-button preserves the view.
+//   7. Summary counts refresh after every mutation (suspend / reactivate /
+//      deactivate / reset-password) so tab badges never drift.
+//
+// Preserves the C53 usersFetchIdRef stale-fetch guard.
 function UsersPanel() {
+  // ── Persisted-in-URL state ───────────────────────────────────
+  // Reading the URL once on mount is cheaper than storing to
+  // localStorage and keeps the page shareable / bookmarkable.
+  const initialFromUrl = () => {
+    if (typeof window === 'undefined') return {};
+    const q = new URLSearchParams(window.location.search);
+    const statusTab = q.get('status');
+    const roleChip  = q.get('role');
+    return {
+      statusTab: ['active', 'suspended', 'deactivated'].includes(statusTab) ? statusTab : 'active',
+      roleChip:  ['inspector', 'client'].includes(roleChip) ? roleChip : '',
+      search:    q.get('search') || '',
+    };
+  };
+
+  const [{ statusTab, roleChip, search }, setFilters] = useState(initialFromUrl);
+  const setStatusTab = (v) => setFilters(f => ({ ...f, statusTab: v }));
+  const setRoleChip  = (v) => setFilters(f => ({ ...f, roleChip:  v }));
+  const setSearch    = (v) => setFilters(f => ({ ...f, search:    v }));
+
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [actionModal, setActionModal] = useState(null); // { type: 'suspend'|'resetPw', userId }
-  // C53: sequence-guard so a slow old search response can't overwrite a newer one.
+  const [actionModal, setActionModal] = useState(null);
+
+  // Summary: counts per (status × role), used by the tab badges + role
+  // chip badges. Null until first fetch so the UI knows to render "–".
+  const [summary, setSummary] = useState(null);
+
+  // C53: sequence-guard so a slow old fetch can't overwrite a newer one.
   const usersFetchIdRef = useRef(0);
+  // Sequence-guard for the summary endpoint too, because mutations can
+  // trigger both a list reload AND a summary reload in parallel.
+  const summaryFetchIdRef = useRef(0);
+
+  // Keep page at 1 whenever the filter set changes. Avoids the case
+  // where switching tabs lands the admin on page 3 of a smaller set.
+  useEffect(() => { setPage(1); }, [statusTab, roleChip, search]);
+
+  // Push the current filter state back into the URL so reload preserves
+  // the view. `replaceState` avoids polluting browser history.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search);
+    // Only write non-default values; keeps the URL clean.
+    if (statusTab && statusTab !== 'active') q.set('status', statusTab); else q.delete('status');
+    if (roleChip) q.set('role', roleChip); else q.delete('role');
+    if (search) q.set('search', search); else q.delete('search');
+    const next = q.toString();
+    const url = next ? `${window.location.pathname}?${next}` : window.location.pathname;
+    window.history.replaceState(null, '', url);
+  }, [statusTab, roleChip, search]);
 
   const loadUsers = useCallback(async () => {
     const thisFetch = ++usersFetchIdRef.current;
@@ -305,10 +368,9 @@ function UsersPanel() {
     try {
       const params = new URLSearchParams({ page, limit: 25 });
       if (search) params.set('search', search);
-      if (roleFilter) params.set('role', roleFilter);
-      if (statusFilter) params.set('status', statusFilter);
+      if (roleChip) params.set('role', roleChip);
+      if (statusTab) params.set('status', statusTab);
       const data = await apiCall('GET', `/platform/users?${params}`);
-      // Guard: if a newer search / page / filter fetch has started, drop this response.
       if (usersFetchIdRef.current !== thisFetch) return;
       setUsers(data.users);
       setTotal(data.total);
@@ -318,15 +380,35 @@ function UsersPanel() {
     } finally {
       if (usersFetchIdRef.current === thisFetch) setLoading(false);
     }
-  }, [page, search, roleFilter, statusFilter]);
+  }, [page, search, roleChip, statusTab]);
+
+  const loadSummary = useCallback(async () => {
+    const thisFetch = ++summaryFetchIdRef.current;
+    try {
+      const data = await apiCall('GET', '/platform/users/summary');
+      if (summaryFetchIdRef.current !== thisFetch) return;
+      setSummary(data);
+    } catch (err) {
+      if (summaryFetchIdRef.current !== thisFetch) return;
+      // Non-fatal: the list still renders, tabs just show "–" instead
+      // of counts. Don't alert — this endpoint may be absent on a
+      // rolling deploy before C57 is fully live in the backend replica.
+      console.warn('Summary fetch failed (tabs will show "–"):', err.message);
+    }
+  }, []);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+
+  // After every mutation: reload BOTH list + summary so counts and
+  // rows stay in sync without a full page refresh.
+  const reloadAll = useCallback(() => { loadUsers(); loadSummary(); }, [loadUsers, loadSummary]);
 
   const handleSuspend = async (userId, reason) => {
     try {
       await apiCall('PUT', `/platform/users/${userId}/suspend`, { reason });
       setActionModal(null);
-      loadUsers();
+      reloadAll();
     } catch (err) {
       alert('Failed to suspend: ' + err.message);
     }
@@ -335,7 +417,7 @@ function UsersPanel() {
   const handleReactivate = async (userId) => {
     try {
       await apiCall('PUT', `/platform/users/${userId}/reactivate`);
-      loadUsers();
+      reloadAll();
     } catch (err) {
       alert('Failed to reactivate: ' + err.message);
     }
@@ -343,10 +425,7 @@ function UsersPanel() {
 
   const handleResetPassword = async (userId, body) => {
     try {
-      // body shape: { newPassword?, sendEmail? } — see C32 backend contract
       const result = await apiCall('PUT', `/platform/users/${userId}/reset-password`, body || {});
-      // Show a result modal with the temp password + email status so the admin
-      // can copy it and hand it off if Resend isn't wired yet.
       setActionModal({
         type: 'resetPwResult',
         userId,
@@ -356,53 +435,205 @@ function UsersPanel() {
         emailSent: !!result?.emailSent,
         generated: !!result?.generated,
       });
+      // Reset-password doesn't change status, so only reload list — not summary.
+      loadUsers();
     } catch (err) {
       alert('Failed to reset password: ' + err.message);
     }
   };
 
-  const handleDelete = async (userId) => {
-    if (!confirm('Deactivate this account? The user will lose access immediately. You can reactivate them later from this list.')) return;
+  const handleDeactivate = async (userId) => {
+    if (!confirm('Deactivate this account? The user will lose access immediately. You can reactivate them later from the Deactivated tab.')) return;
     try {
       await apiCall('DELETE', `/platform/users/${userId}`);
-      loadUsers();
+      reloadAll();
     } catch (err) {
       alert('Failed to deactivate: ' + err.message);
     }
   };
 
+  // Derive the displayable status for a row. Prefer the server-
+  // authoritative `status` from C57 listUsers; fall back to the legacy
+  // derivation so this keeps rendering during a rolling deploy.
+  const rowStatus = (u) =>
+    u.status
+      || (u.deactivatedAt ? 'deactivated'
+        : u.suspendedAt   ? 'suspended'
+        : u.active        ? 'active'
+        : 'deactivated');
+
   const totalPages = Math.ceil(total / 25);
+
+  // ── Counts for the tab + chip badges ───────────────────────────
+  const count = (tab, role) => {
+    if (!summary) return null;
+    if (!role) return summary[tab];
+    return summary.byRole?.[role]?.[tab] ?? 0;
+  };
+  const fmt = (n) => n === null || n === undefined ? '–' : String(n);
+
+  // Tab + chip definitions, kept data-driven so the render stays flat.
+  const TABS = [
+    { key: 'active',      label: 'Active',      color: '#10b981' },
+    { key: 'suspended',   label: 'Suspended',   color: '#ef4444' },
+    { key: 'deactivated', label: 'Deactivated', color: '#64748b' },
+  ];
+  const CHIPS = [
+    { key: '',          label: 'All' },
+    { key: 'inspector', label: 'Inspectors' },
+    { key: 'client',    label: 'Clients' },
+  ];
+
+  // Keyboard: left / right on the tablist moves between tabs.
+  const onTabKey = (e, idx) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const next = e.key === 'ArrowRight'
+      ? (idx + 1) % TABS.length
+      : (idx - 1 + TABS.length) % TABS.length;
+    setStatusTab(TABS[next].key);
+    // Move DOM focus to the newly-selected tab for screen readers.
+    const el = document.getElementById(`users-tab-${TABS[next].key}`);
+    if (el) el.focus();
+  };
+
+  const emptyCopy = {
+    active:      { title: 'No active users yet',            sub: 'Invited inspectors and clients will land here when they sign in.' },
+    suspended:   { title: 'No users are currently suspended', sub: 'Great — no one is in the timeout corner.' },
+    deactivated: { title: 'No deactivated users',            sub: 'Deactivated accounts show up here so you can reactivate them later.' },
+  }[statusTab] || { title: 'No users found', sub: '' };
 
   return (
     <div>
-      <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', marginBottom: '16px' }}>User Management</h2>
+      <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', marginBottom: '4px' }}>
+        User Management
+      </h2>
+      <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '16px' }}>
+        Inspectors and clients on the platform. Switch tabs to focus on a lifecycle state.
+      </div>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+      {/* ── Status tabs ─────────────────────────────────────── */}
+      <div
+        role="tablist"
+        aria-label="User status"
+        style={{
+          display: 'inline-flex',
+          background: '#0f172a',
+          borderRadius: '10px',
+          padding: '4px',
+          border: '1px solid #334155',
+          marginBottom: '12px',
+        }}
+      >
+        {TABS.map((t, idx) => {
+          const selected = statusTab === t.key;
+          return (
+            <button
+              key={t.key}
+              id={`users-tab-${t.key}`}
+              role="tab"
+              aria-selected={selected}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => setStatusTab(t.key)}
+              onKeyDown={(e) => onTabKey(e, idx)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 14px',
+                background: selected ? '#1e293b' : 'transparent',
+                color: selected ? '#f1f5f9' : '#94a3b8',
+                border: 'none',
+                borderRadius: '7px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: selected ? 700 : 500,
+                boxShadow: selected ? '0 1px 3px rgba(0,0,0,0.3)' : 'none',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', background: t.color,
+                boxShadow: selected ? `0 0 0 3px ${t.color}33` : 'none',
+              }} />
+              {t.label}
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '2px 8px',
+                borderRadius: '999px',
+                background: selected ? t.color : '#334155',
+                color: selected ? '#fff' : '#cbd5e1',
+                minWidth: 20,
+                textAlign: 'center',
+              }}>
+                {fmt(count(t.key, roleChip))}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Role chips + search ─────────────────────────────── */}
+      <div style={{
+        display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap',
+        marginBottom: '16px',
+      }}>
+        <div role="group" aria-label="Filter by role" style={{ display: 'inline-flex', gap: '6px' }}>
+          {CHIPS.map(c => {
+            const selected = roleChip === c.key;
+            const chipCount = c.key
+              ? count(statusTab, c.key)
+              : count(statusTab, '');
+            return (
+              <button
+                key={c.key || 'all'}
+                aria-pressed={selected}
+                onClick={() => setRoleChip(c.key)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 12px',
+                  background: selected ? '#1e293b' : 'transparent',
+                  color: selected ? '#f1f5f9' : '#94a3b8',
+                  border: `1px solid ${selected ? '#475569' : '#334155'}`,
+                  borderRadius: '999px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: selected ? 600 : 500,
+                }}
+              >
+                {c.label}
+                <span style={{
+                  fontSize: '11px', fontWeight: 600,
+                  padding: '1px 7px', borderRadius: '999px',
+                  background: selected ? '#334155' : '#0f172a',
+                  color: '#cbd5e1',
+                  minWidth: 16, textAlign: 'center',
+                }}>
+                  {fmt(chipCount)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <input
-          type="text" placeholder="Search by name, email, or company..."
-          value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-          style={inputDarkStyle}
+          type="text"
+          placeholder="Search by name, email, or company..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ ...inputDarkStyle, maxWidth: 320, marginLeft: 'auto' }}
         />
-        <select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(1); }} style={{ ...inputDarkStyle, width: '150px' }}>
-          <option value="">All Roles</option>
-          <option value="inspector">Inspectors</option>
-          <option value="client">Clients</option>
-        </select>
-        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} style={{ ...inputDarkStyle, width: '150px' }}>
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="suspended">Suspended</option>
-          <option value="inactive">Inactive</option>
-        </select>
       </div>
 
-      {/* Results count */}
-      <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>
-        {total} user{total !== 1 ? 's' : ''} found
+      {/* Results count (belt-and-suspenders under the tab badges) */}
+      <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px' }}>
+        {loading ? 'Loading...' : `${total} ${total === 1 ? 'user' : 'users'} match your filters`}
       </div>
 
-      {/* Table */}
+      {/* ── Table ───────────────────────────────────────────── */}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -416,45 +647,55 @@ function UsersPanel() {
             {loading ? (
               <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading...</td></tr>
             ) : users.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>No users found</td></tr>
-            ) : users.map(u => (
-              <tr key={u.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                <td style={cellStyle}>
-                  <div style={{ fontWeight: '500', color: '#f1f5f9' }}>{u.fullName || '—'}</div>
-                  {u.isPrimaryAdmin && <span style={badgeStyle('#fbbf24')} title="First inspector on this organization — not a platform admin">Org Primary</span>}
-                </td>
-                <td style={cellStyle}>{u.email}</td>
-                <td style={cellStyle}>
-                  <span style={badgeStyle(u.role === 'inspector' ? '#3b82f6' : '#f59e0b')}>
-                    {u.role}
-                  </span>
-                </td>
-                <td style={cellStyle}>{u.orgName || '—'}</td>
-                <td style={cellStyle}>{u.projectCount}</td>
-                <td style={cellStyle}>
-                  {u.suspendedAt ? (
-                    <span style={badgeStyle('#ef4444')}>Suspended</span>
-                  ) : u.active ? (
-                    <span style={badgeStyle('#10b981')}>Active</span>
-                  ) : (
-                    <span style={badgeStyle('#64748b')}>Inactive</span>
-                  )}
-                </td>
-                <td style={cellStyle}>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</td>
-                <td style={cellStyle}>{new Date(u.createdAt).toLocaleDateString()}</td>
-                <td style={cellStyle}>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {u.suspendedAt ? (
-                      <button onClick={() => handleReactivate(u.id)} style={actionBtnStyle('#10b981')}>Reactivate</button>
-                    ) : (
-                      <button onClick={() => setActionModal({ type: 'suspend', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#f59e0b')}>Suspend</button>
-                    )}
-                    <button onClick={() => setActionModal({ type: 'resetPw', userId: u.id, userName: u.fullName || u.email, userEmail: u.email })} style={actionBtnStyle('#3b82f6')}>Reset PW</button>
-                    <button onClick={() => handleDelete(u.id)} style={actionBtnStyle('#ef4444')} title="Deactivate this account (reversible)">Deactivate</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+              <tr><td colSpan={9} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#cbd5e1', marginBottom: 4 }}>{emptyCopy.title}</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{emptyCopy.sub}</div>
+              </td></tr>
+            ) : users.map(u => {
+              const s = rowStatus(u);
+              const statusMeta = TABS.find(t => t.key === s) || { label: s, color: '#64748b' };
+              return (
+                <tr key={u.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={cellStyle}>
+                    <div style={{ fontWeight: '500', color: '#f1f5f9' }}>{u.fullName || '—'}</div>
+                    {u.isPrimaryAdmin && <span style={badgeStyle('#fbbf24')} title="First inspector on this organization — not a platform admin">Org Primary</span>}
+                  </td>
+                  <td style={cellStyle}>{u.email}</td>
+                  <td style={cellStyle}>
+                    <span style={badgeStyle(u.role === 'inspector' ? '#3b82f6' : '#f59e0b')}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td style={cellStyle}>{u.orgName || '—'}</td>
+                  <td style={cellStyle}>{u.projectCount}</td>
+                  <td style={cellStyle}>
+                    <span style={badgeStyle(statusMeta.color)}>{statusMeta.label}</span>
+                  </td>
+                  <td style={cellStyle}>{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</td>
+                  <td style={cellStyle}>{new Date(u.createdAt).toLocaleDateString()}</td>
+                  <td style={cellStyle}>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {/* Contextual actions per status.
+                          - active:      Reset PW · Suspend · Deactivate
+                          - suspended:   Reset PW · Reactivate · Deactivate
+                          - deactivated: Reactivate (only) */}
+                      {s !== 'deactivated' && (
+                        <button onClick={() => setActionModal({ type: 'resetPw', userId: u.id, userName: u.fullName || u.email, userEmail: u.email })} style={actionBtnStyle('#3b82f6')}>Reset PW</button>
+                      )}
+                      {s === 'active' && (
+                        <button onClick={() => setActionModal({ type: 'suspend', userId: u.id, userName: u.fullName || u.email })} style={actionBtnStyle('#f59e0b')}>Suspend</button>
+                      )}
+                      {(s === 'suspended' || s === 'deactivated') && (
+                        <button onClick={() => handleReactivate(u.id)} style={actionBtnStyle('#10b981')}>Reactivate</button>
+                      )}
+                      {s !== 'deactivated' && (
+                        <button onClick={() => handleDeactivate(u.id)} style={actionBtnStyle('#ef4444')} title="Deactivate this account (reversible from the Deactivated tab)">Deactivate</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
