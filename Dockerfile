@@ -14,6 +14,8 @@ RUN cd server && npm ci
 COPY . .
 
 # Build the frontend
+ARG VITE_MAPBOX_TOKEN
+ENV VITE_MAPBOX_TOKEN=$VITE_MAPBOX_TOKEN
 RUN npm run build
 
 # Production image
