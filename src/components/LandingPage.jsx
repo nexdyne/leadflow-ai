@@ -595,8 +595,16 @@ function MichiganMapSection() {
           });
         });
 
-        map.on('error', () => {
-          setMapLoaded(false);
+        // C65.4: never flip mapLoaded to false from error events.
+        // Mapbox fires error for transient causes (tile timeouts, sprite
+        // misses) — sometimes BEFORE 'load'. The original handler would
+        // flip state to false and keep the SVG overlay visible on top of
+        // the working map. useState initial value is already false, so
+        // if load legitimately never fires, SVG stays up (correct).
+        map.on('error', (e) => {
+          if (e && e.error && e.error.message) {
+            console.warn('[Mapbox]', e.error.message);
+          }
         });
       } catch (e) {
         setMapLoaded(false);
