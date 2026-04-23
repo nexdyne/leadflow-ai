@@ -782,11 +782,33 @@ export async function listOrganizations(req, res) {
   const [countResult, orgsResult] = await Promise.all([
     query(`SELECT COUNT(*) FROM organizations o ${where}`, params),
     query(
+      // C62: surface orphan status.
+      //   - `active_admin_count` counts currently-usable primary admins
+      //     for the org (is_primary_admin=true AND not suspended/
+      //     deactivated). When this is 0 for a non-empty org, nobody
+      //     can manage users/billing and the org is effectively orphaned.
+      //   - `primary_admin_status` tells the UI which state the owner-
+      //     of-record (created_by) is currently in so the admin can
+      //     decide whether to reactivate them or promote a replacement.
       `SELECT o.*,
               (SELECT COUNT(*) FROM users u WHERE u.organization_id = o.id AND u.active = true) AS user_count,
               (SELECT COUNT(*) FROM teams t WHERE t.organization_id = o.id AND t.active = true) AS team_count,
               (SELECT u.full_name FROM users u WHERE u.id = o.created_by) AS owner_name,
-              (SELECT u.email FROM users u WHERE u.id = o.created_by) AS owner_email
+              (SELECT u.email FROM users u WHERE u.id = o.created_by) AS owner_email,
+              (SELECT CASE
+                        WHEN u.deactivated_at IS NOT NULL THEN 'deactivated'
+                        WHEN u.suspended_at   IS NOT NULL THEN 'suspended'
+                        WHEN u.active = true              THEN 'active'
+                        ELSE 'inactive'
+                      END
+                 FROM users u
+                WHERE u.id = o.created_by) AS owner_status,
+              (SELECT COUNT(*) FROM users u
+                WHERE u.organization_id = o.id
+                  AND u.is_primary_admin = true
+                  AND u.active = true
+                  AND u.suspended_at IS NULL
+                  AND u.deactivated_at IS NULL) AS active_admin_count
        FROM organizations o
        ${where}
        ORDER BY o.created_at DESC
@@ -796,17 +818,27 @@ export async function listOrganizations(req, res) {
   ]);
 
   res.json({
-    organizations: orgsResult.rows.map(o => ({
-      id: o.id, name: o.name, slug: o.slug,
-      address: o.address, city: o.city, stateCode: o.state_code, zip: o.zip,
-      phone: o.phone, email: o.email,
-      subscriptionPlan: o.subscription_plan, subscriptionStatus: o.subscription_status,
-      trialEndsAt: o.trial_ends_at, monthlyRate: o.monthly_rate,
-      billingEmail: o.billing_email, notes: o.notes,
-      active: o.active, createdAt: o.created_at,
-      userCount: parseInt(o.user_count), teamCount: parseInt(o.team_count),
-      ownerName: o.owner_name, ownerEmail: o.owner_email,
-    })),
+    organizations: orgsResult.rows.map(o => {
+      const activeAdminCount = parseInt(o.active_admin_count);
+      const userCount = parseInt(o.user_count);
+      // An org is "orphaned" when it has users but no usable primary
+      // admin. A brand-new empty org is not orphaned — just empty.
+      const isOrphaned = activeAdminCount === 0 && userCount > 0;
+      return {
+        id: o.id, name: o.name, slug: o.slug,
+        address: o.address, city: o.city, stateCode: o.state_code, zip: o.zip,
+        phone: o.phone, email: o.email,
+        subscriptionPlan: o.subscription_plan, subscriptionStatus: o.subscription_status,
+        trialEndsAt: o.trial_ends_at, monthlyRate: o.monthly_rate,
+        billingEmail: o.billing_email, notes: o.notes,
+        active: o.active, createdAt: o.created_at,
+        userCount, teamCount: parseInt(o.team_count),
+        ownerName: o.owner_name, ownerEmail: o.owner_email,
+        ownerStatus: o.owner_status,        // C62
+        activeAdminCount,                   // C62
+        isOrphaned,                         // C62
+      };
+    }),
     total: parseInt(countResult.rows[0].count),
     page: parseInt(page),
     limit, // C61: already clamped above

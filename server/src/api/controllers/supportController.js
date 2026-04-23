@@ -152,11 +152,18 @@ export async function listTickets(req, res) {
   const [countResult, ticketsResult] = await Promise.all([
     query(`SELECT COUNT(*) FROM support_tickets t ${whereSql}`, params),
     query(
+      // C62: also LEFT JOIN the submitter so the admin UI can render a
+      // "submitter deactivated/suspended" badge. `submitter_*` may be
+      // NULL for tickets created by guests (no user_id).
       `SELECT t.*,
               a.full_name AS assigned_name,
-              a.email     AS assigned_email
+              a.email     AS assigned_email,
+              s.active            AS submitter_active,
+              s.suspended_at      AS submitter_suspended_at,
+              s.deactivated_at    AS submitter_deactivated_at
        FROM support_tickets t
        LEFT JOIN users a ON a.id = t.assigned_to
+       LEFT JOIN users s ON s.id = t.user_id
        ${whereSql}
        ORDER BY CASE t.status
                   WHEN 'new' THEN 0
@@ -206,6 +213,16 @@ export async function listTickets(req, res) {
       resolvedAt: r.resolved_at,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      // C62: submitter lifecycle status at time of listing. Derived
+      // the same way the listUsers status is derived post-C57. NULL
+      // user_id (guest submissions) yields 'guest'.
+      submitterStatus: r.user_id == null
+        ? 'guest'
+        : r.submitter_deactivated_at ? 'deactivated'
+        : r.submitter_suspended_at   ? 'suspended'
+        : r.submitter_active === true ? 'active'
+        : r.submitter_active === false ? 'inactive'
+        : 'unknown',
     })),
     total: parseInt(countResult.rows[0].count),
     page: parseInt(page),

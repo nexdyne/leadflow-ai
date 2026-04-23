@@ -261,19 +261,32 @@ function OverviewPanel({ dashboard, onRefresh }) {
         ))}
       </div>
 
-      {/* Quick status */}
+      {/* Quick status — C62 added the Deactivated tile.
+          Backend (C57) already returns `users.deactivated` via
+          getDashboard; the panel just never rendered it. Showing all
+          three states side-by-side matches the segmented tabs in the
+          Users panel so the Overview language is consistent. */}
       <div style={{ ...cardStyle, marginTop: '24px' }}>
-        <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', marginBottom: '12px' }}>Quick Summary</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9', marginBottom: '12px' }}>Account Lifecycle</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
           <div>
-            <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '6px' }}>Suspended Accounts</div>
+            <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '6px' }}>Suspended</div>
             <div style={{ fontSize: '24px', fontWeight: '700', color: (dashboard.users.suspended ?? 0) > 0 ? '#ef4444' : '#10b981' }}>
               {dashboard.users.suspended ?? 0}
             </div>
+            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Temporary bans</div>
           </div>
           <div>
-            <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '6px' }}>Inactive Accounts</div>
+            <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '6px' }}>Deactivated</div>
+            <div style={{ fontSize: '24px', fontWeight: '700', color: '#64748b' }}>
+              {dashboard.users.deactivated ?? 0}
+            </div>
+            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Soft-deleted (reversible)</div>
+          </div>
+          <div>
+            <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '6px' }}>Inactive (any)</div>
             <div style={{ fontSize: '24px', fontWeight: '700', color: '#f59e0b' }}>{dashboard.users.inactive ?? 0}</div>
+            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Suspended + Deactivated</div>
           </div>
         </div>
       </div>
@@ -819,12 +832,40 @@ function OrganizationsPanel() {
         ) : orgs.length === 0 ? (
           <div style={{ color: '#64748b', padding: '40px', textAlign: 'center' }}>No organizations found</div>
         ) : orgs.map(org => (
-          <div key={org.id} style={cardStyle}>
+          <div key={org.id} style={{
+            ...cardStyle,
+            // C62: reddish tint for orphaned orgs so they can't be
+            // missed when scanning the list. Keeps the dark theme.
+            border: org.isOrphaned ? '1px solid #ef4444' : cardStyle.border,
+            boxShadow: org.isOrphaned ? '0 0 0 1px rgba(239, 68, 68, 0.25) inset' : cardStyle.boxShadow,
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9' }}>{org.name}</div>
-                <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>
-                  Owner: {org.ownerName || '—'} ({org.ownerEmail || '—'})
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: '16px', fontWeight: '600', color: '#f1f5f9' }}>{org.name}</div>
+                  {/* C62: orphan banner — org has users but no usable
+                      primary admin. Click-through to the Users tab for
+                      this org would be a nice follow-up. */}
+                  {org.isOrphaned && (
+                    <span style={badgeStyle('#ef4444')} title="No active primary admin — no one can manage this org's users/billing.">
+                      Orphaned
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <span>Owner: {org.ownerName || '—'} ({org.ownerEmail || '—'})</span>
+                  {/* C62: owner-status chip — tells the admin at a
+                      glance why the org might be orphaned without
+                      making them click into the Users panel. */}
+                  {org.ownerStatus === 'suspended' && (
+                    <span style={{ ...badgeStyle('#ef4444'), fontSize: '10px' }} title="The owner-of-record is suspended.">owner suspended</span>
+                  )}
+                  {org.ownerStatus === 'deactivated' && (
+                    <span style={{ ...badgeStyle('#64748b'), fontSize: '10px' }} title="The owner-of-record is deactivated.">owner deactivated</span>
+                  )}
+                  {typeof org.activeAdminCount === 'number' && org.activeAdminCount === 0 && org.userCount > 0 && (
+                    <span style={{ fontSize: '11px', color: '#ef4444' }}>· 0 usable primary admins</span>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1237,6 +1278,15 @@ function AuditPanel() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  // C62: action + target filters. Backend listAuditLogs already
+  // supports ?action= (ILIKE) and ?targetType= (exact); the UI never
+  // exposed them, so admins couldn't narrow to e.g. user.deactivated.
+  const [actionFilter, setActionFilter] = useState('');
+  const [targetTypeFilter, setTargetTypeFilter] = useState('');
+
+  // Reset to page 1 whenever filters change — avoids landing on an
+  // empty page 3 after narrowing the result set.
+  useEffect(() => { setPage(1); }, [actionFilter, targetTypeFilter]);
 
   useEffect(() => {
     // C54: cancelled-flag pattern (matches RevenuePanel) so fast Prev/Next clicks
@@ -1245,7 +1295,10 @@ function AuditPanel() {
     (async () => {
       setLoading(true);
       try {
-        const data = await apiCall('GET', `/platform/audit-logs?page=${page}&limit=50`);
+        const params = new URLSearchParams({ page, limit: 50 });
+        if (actionFilter) params.set('action', actionFilter);
+        if (targetTypeFilter) params.set('targetType', targetTypeFilter);
+        const data = await apiCall('GET', `/platform/audit-logs?${params}`);
         if (cancelled) return;
         setLogs(data.logs);
         setTotal(data.total);
@@ -1257,11 +1310,55 @@ function AuditPanel() {
       }
     })();
     return () => { cancelled = true; };
-  }, [page]);
+  }, [page, actionFilter, targetTypeFilter]);
 
   return (
     <div>
       <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#f1f5f9', marginBottom: '16px' }}>Audit Logs</h2>
+
+      {/* C62: action + target filters */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <select
+          value={actionFilter}
+          onChange={e => setActionFilter(e.target.value)}
+          style={{ ...inputDarkStyle, width: '220px' }}
+        >
+          <option value="">All actions</option>
+          <optgroup label="User lifecycle">
+            <option value="user.suspended">user.suspended</option>
+            <option value="user.reactivated">user.reactivated</option>
+            <option value="user.deactivated">user.deactivated</option>
+            <option value="user.deleted">user.deleted (legacy)</option>
+            <option value="user.password_reset">user.password_reset</option>
+          </optgroup>
+          <optgroup label="Announcements">
+            <option value="announcement.created">announcement.created</option>
+            <option value="announcement.updated">announcement.updated</option>
+            <option value="announcement.deleted">announcement.deleted</option>
+          </optgroup>
+          <optgroup label="Organization">
+            <option value="org.updated">org.updated</option>
+          </optgroup>
+        </select>
+        <select
+          value={targetTypeFilter}
+          onChange={e => setTargetTypeFilter(e.target.value)}
+          style={{ ...inputDarkStyle, width: '160px' }}
+        >
+          <option value="">All targets</option>
+          <option value="user">user</option>
+          <option value="organization">organization</option>
+          <option value="announcement">announcement</option>
+        </select>
+        {(actionFilter || targetTypeFilter) && (
+          <button
+            onClick={() => { setActionFilter(''); setTargetTypeFilter(''); }}
+            style={{ ...actionBtnStyle('#475569'), padding: '8px 14px' }}
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
 
       <div style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '12px' }}>{total} log entries</div>
 
@@ -1886,7 +1983,22 @@ function SupportPanel() {
                   #{t.id} · {t.subject}
                 </td>
                 <td style={cellStyle}>
-                  <div style={{ color: '#f1f5f9' }}>{t.name || '—'}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ color: '#f1f5f9' }}>{t.name || '—'}</span>
+                    {/* C62: submitter lifecycle badge — tells an admin
+                        replying to a ticket whether the submitter's
+                        account still exists. 'guest' = ticket opened
+                        without a signed-in user. */}
+                    {t.submitterStatus === 'suspended' && (
+                      <span style={{ ...badgeStyle('#ef4444'), fontSize: '10px' }} title="This user is currently suspended.">suspended</span>
+                    )}
+                    {t.submitterStatus === 'deactivated' && (
+                      <span style={{ ...badgeStyle('#64748b'), fontSize: '10px' }} title="This user's account was deactivated.">deactivated</span>
+                    )}
+                    {t.submitterStatus === 'guest' && (
+                      <span style={{ ...badgeStyle('#475569'), fontSize: '10px' }} title="Ticket opened without a signed-in user.">guest</span>
+                    )}
+                  </div>
                   <div style={{ fontSize: '11px', color: '#94a3b8' }}>{t.email}</div>
                 </td>
                 <td style={cellStyle}>{t.category}</td>
