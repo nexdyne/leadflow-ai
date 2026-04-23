@@ -480,10 +480,20 @@ export async function reactivateUser(req, res) {
     [id]
   );
 
-  const userInfo = await query('SELECT email, full_name FROM users WHERE id = $1', [id]);
+  // C60: pass is_platform_admin so the email CTA lands at /admin vs
+  // /login per the recipient's audience. Before C60 the call passed
+  // only 2 of the 3 args, so platform admins got a /login link that
+  // doesn't authorize them — a dead end.
+  const userInfo = await query(
+    'SELECT email, full_name, is_platform_admin FROM users WHERE id = $1',
+    [id]
+  );
   if (userInfo.rows[0]) {
-    sendAccountReactivatedEmail(userInfo.rows[0].email, userInfo.rows[0].full_name)
-      .catch(err => console.error('Account reactivated email failed:', err.message));
+    sendAccountReactivatedEmail(
+      userInfo.rows[0].email,
+      userInfo.rows[0].full_name,
+      userInfo.rows[0].is_platform_admin === true
+    ).catch(err => console.error('Account reactivated email failed:', err.message));
   }
 
   await auditLog(
@@ -554,17 +564,33 @@ export async function deleteUser(req, res) {
   // Revoke sessions
   await query('UPDATE sessions SET is_revoked = true WHERE user_id = $1', [id]);
 
-  // C59: opt-in notification. Fire-and-forget — catches its own errors
-  // so an email failure never bubbles up as a 500 to the admin.
+  // C60: report the real send outcome, not intent.
+  //   * If sendEmail !== true, skip entirely.
+  //   * If the row has no usable email on file, skip and log.
+  //   * Otherwise await the send and surface `skipped`/success to the
+  //     admin so the UI / audit log never lies about delivery.
   let emailSent = false;
+  const recipient = check.rows[0].email;
   if (sendEmail === true) {
-    emailSent = true; // intent-to-send; the template itself may silently
-                      // fall back to no-op if RESEND_API_KEY isn't set.
-    sendAccountDeactivatedEmail(
-      check.rows[0].email,
-      check.rows[0].full_name,
-      reason || null
-    ).catch(err => console.error('Account deactivated email failed:', err.message));
+    if (!recipient || !recipient.includes('@')) {
+      console.warn(
+        `[Deactivate] sendEmail requested but user #${id} has no usable email on file; skipping.`
+      );
+    } else {
+      try {
+        const result = await sendAccountDeactivatedEmail(
+          recipient,
+          check.rows[0].full_name,
+          reason || null
+        );
+        // sendEmail()'s skip path returns { skipped: true } when
+        // RESEND_API_KEY is unset — that's not a successful delivery.
+        emailSent = !result?.skipped;
+      } catch (err) {
+        console.error('Account deactivated email failed:', err.message);
+        emailSent = false;
+      }
+    }
   }
 
   await auditLog(
@@ -800,27 +826,52 @@ export async function createAnnouncement(req, res) {
 
   await auditLog(req.user.userId, req.user.email, 'announcement.created', 'announcement', result.rows[0].id, { title, type });
 
-  // Broadcast email if requested
+  // Broadcast email if requested.
+  //
+  // C60 notes:
+  //   (a) Audience filter explicitly excludes suspended OR deactivated
+  //       rows instead of relying on `active = false` as a proxy —
+  //       belt-and-suspenders for any future code path that might write
+  //       to those columns without flipping `active`.
+  //   (b) Count ONLY real sends, not intent. Pre-C60 the counter was
+  //       incremented before the Promise resolved, so when RESEND_API_KEY
+  //       was unset the response reported "N emails sent" for N=0 real
+  //       deliveries. Now we await the batch with Promise.allSettled and
+  //       count non-skipped fulfilled results.
   let emailsSent = 0;
+  let emailsSkipped = 0;
+  let emailsFailed = 0;
   if (shouldEmail) {
     try {
-      let audienceCondition = "u.active = true AND u.is_platform_admin = false";
+      let audienceCondition =
+        "u.active = true AND u.is_platform_admin = false AND u.suspended_at IS NULL AND u.deactivated_at IS NULL";
       if (targetAudience === 'inspectors') audienceCondition += " AND u.role = 'inspector'";
       else if (targetAudience === 'clients') audienceCondition += " AND u.role = 'client'";
 
       const users = await query(`SELECT email FROM users u WHERE ${audienceCondition}`);
-      for (const u of users.rows) {
-        sendAnnouncementEmail(u.email, title, body, type).catch(err =>
-          console.error(`Announcement email to ${u.email} failed:`, err.message)
-        );
-        emailsSent++;
+      const settled = await Promise.allSettled(
+        users.rows.map(u => sendAnnouncementEmail(u.email, title, body, type))
+      );
+      for (const s of settled) {
+        if (s.status === 'fulfilled') {
+          if (s.value?.skipped) emailsSkipped++;
+          else emailsSent++;
+        } else {
+          emailsFailed++;
+          console.error('Announcement email failed:', s.reason?.message);
+        }
       }
     } catch (err) {
       console.error('Announcement broadcast failed:', err.message);
     }
   }
 
-  res.status(201).json({ announcement: result.rows[0], emailsSent });
+  res.status(201).json({
+    announcement: result.rows[0],
+    emailsSent,
+    emailsSkipped,
+    emailsFailed,
+  });
 }
 
 // PUT /api/platform/announcements/:id — update announcement

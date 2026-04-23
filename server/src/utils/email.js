@@ -272,13 +272,24 @@ export async function sendAnnouncementEmail(to, title, body, type) {
   };
   const style = typeColors[type] || typeColors.info;
 
+  // C60: escape admin-supplied title/body before interpolating into the
+  // email HTML. Without this, a platform admin could broadcast a
+  // phishing payload (<a href="https://evil/">Pay now</a>, <style>...,
+  // <img onerror=...>) to every user. Plain-text newlines still render
+  // because the <p> has white-space:pre-line.
+  const safeTitle = escapeHtml(title);
+  const safeBody = escapeHtml(body);
+
+  // Subject line is plain text (no HTML rendering in mail clients) but
+  // we still use the unescaped raw title so admins see their original
+  // text in the inbox subject. Resend/SMTP accepts UTF-8 cleanly.
   const subject = `[${APP_NAME}] ${title}`;
   const html = emailLayout(subject, `
     <div style="background:${style.bg}; border:1px solid ${style.border}; border-radius:8px; padding:4px 12px; display:inline-block; margin-bottom:12px;">
       <span style="color:${style.color}; font-size:12px; font-weight:600; text-transform:uppercase;">${style.icon}</span>
     </div>
-    <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">${title}</h2>
-    <p style="color:#475569; line-height:1.6; margin:0 0 16px; white-space:pre-line;">${body}</p>
+    <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">${safeTitle}</h2>
+    <p style="color:#475569; line-height:1.6; margin:0 0 16px; white-space:pre-line;">${safeBody}</p>
     ${buttonHtml('Open LeadFlow AI', APP_URL)}
   `);
 
@@ -450,7 +461,14 @@ export async function sendMemberRemovedEmail(to, memberName, teamName, removedBy
 
 export async function sendAccountSuspendedEmail(to, fullName, reason) {
   const subject = 'Your LeadFlow AI account has been suspended';
+  // C60: escape reason + fullName (admin-supplied). Add greeting so the
+  // message reads as personalized rather than a forwarded bulletin.
+  const safeName = escapeHtml(fullName);
+  const safeReason = escapeHtml(reason);
   const html = emailLayout(subject, `
+    <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
+      Hi ${safeName || 'there'},
+    </p>
     <h2 style="margin:0 0 12px; color:#dc2626; font-size:20px;">Account Suspended</h2>
     <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #dc2626;">
       <div style="color:#991b1b; font-size:14px; font-weight:600; margin-bottom:8px;">What This Means</div>
@@ -462,7 +480,7 @@ export async function sendAccountSuspendedEmail(to, fullName, reason) {
     </div>
     <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin:16px 0;">
       <div style="color:#64748b; font-size:13px; margin-bottom:8px;">Reason:</div>
-      <div style="color:#1e293b; font-size:14px; line-height:1.6;">${reason}</div>
+      <div style="color:#1e293b; font-size:14px; line-height:1.6;">${safeReason}</div>
     </div>
     ${buttonHtml('Contact Support', 'mailto:admin@abatecomply.com', '#dc2626')}
   `);
@@ -481,7 +499,12 @@ export async function sendAccountReactivatedEmail(to, fullName, isPlatformAdmin 
   // audience-appropriate surface is the one they already use, so the
   // reactivation button should land them exactly there.
   const signInPath = isPlatformAdmin ? '/admin' : '/login';
+  // C60: personalized greeting + escape the name before HTML interpolation.
+  const safeName = escapeHtml(fullName);
   const html = emailLayout(subject, `
+    <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
+      Hi ${safeName || 'there'},
+    </p>
     <h2 style="margin:0 0 12px; color:#059669; font-size:20px;">Welcome Back!</h2>
     <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
       Your ${APP_NAME} account has been reactivated and is ready to use. You can now log in and access all your projects and data.
@@ -516,17 +539,20 @@ export async function sendAccountReactivatedEmail(to, fullName, isPlatformAdmin 
 
 export async function sendAccountDeactivatedEmail(to, fullName, reason) {
   const subject = 'Your LeadFlow AI account has been deactivated';
+  // C60: escape admin-supplied reason + fullName before HTML interpolation.
+  const safeName = escapeHtml(fullName);
+  const safeReason = escapeHtml(reason);
   const reasonBlock = reason
     ? `
       <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin:16px 0;">
         <div style="color:#64748b; font-size:13px; margin-bottom:8px;">Reason provided by the administrator:</div>
-        <div style="color:#1e293b; font-size:14px; line-height:1.6;">${reason}</div>
+        <div style="color:#1e293b; font-size:14px; line-height:1.6;">${safeReason}</div>
       </div>`
     : '';
   const html = emailLayout(subject, `
     <h2 style="margin:0 0 12px; color:#475569; font-size:20px;">Account Deactivated</h2>
     <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
-      Hi ${fullName || 'there'},
+      Hi ${safeName || 'there'},
     </p>
     <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
       Your ${APP_NAME} account has been deactivated by a platform administrator.
@@ -557,6 +583,13 @@ export async function sendAccountDeactivatedEmail(to, fullName, reason) {
 // ═══════════════════════════════════════════════════════════
 
 export async function sendAdminNewUserAlert(to, newUserEmail, newUserName, newUserRole) {
+  // C60: escape all fields from the registering user. Name + role are
+  // arbitrary strings at signup time and flow straight into an email
+  // that lands in platform admins' inboxes — if unescaped, a signup
+  // could phish a sysadmin.
+  const safeEmail = escapeHtml(newUserEmail);
+  const safeName  = escapeHtml(newUserName);
+  const safeRole  = escapeHtml(newUserRole);
   const subject = `New user registered: ${newUserEmail}`;
   const html = emailLayout(subject, `
     <h2 style="margin:0 0 12px; color:#1e293b; font-size:20px;">New User Registration</h2>
@@ -566,9 +599,9 @@ export async function sendAdminNewUserAlert(to, newUserEmail, newUserName, newUs
     <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:16px; margin:16px 0;">
       <div style="color:#1e40af; font-size:14px; font-weight:600; margin-bottom:8px;">User Details</div>
       <div style="color:#475569; font-size:13px; line-height:1.8;">
-        <strong>Name:</strong> ${newUserName}<br>
-        <strong>Email:</strong> ${newUserEmail}<br>
-        <strong>Role:</strong> ${newUserRole}<br>
+        <strong>Name:</strong> ${safeName}<br>
+        <strong>Email:</strong> ${safeEmail}<br>
+        <strong>Role:</strong> ${safeRole}<br>
         <strong>Registered:</strong> ${new Date().toLocaleString()}
       </div>
     </div>
