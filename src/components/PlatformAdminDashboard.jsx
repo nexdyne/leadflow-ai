@@ -1310,6 +1310,20 @@ function CreateAnnouncementModal({ onSave, onCancel }) {
     title: '', body: '', type: 'info', targetAudience: 'all', expiresAt: '', sendEmail: false,
   });
 
+  // C55: Escape-to-close, matching the C50 share-modal pattern in ProjectDashboard.jsx.
+  // Scope is deliberately Escape-only — role=dialog + focus management are real gaps
+  // but would expand this past a quick fix; tracking as potential C56.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onCancel();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
   return (
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, maxWidth: '500px' }}>
