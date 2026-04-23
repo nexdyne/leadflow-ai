@@ -29,6 +29,115 @@ const COLORS = {
 
 const APP_URL = window.location.origin;
 
+// C63: Mapbox token lives in env (VITE_MAPBOX_TOKEN). If unset we fall
+// back to a static SVG + a professional "contact sales" message rather
+// than firing a doomed tile request.
+const MAPBOX_TOKEN =
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_MAPBOX_TOKEN) || '';
+const HAS_MAPBOX = !!MAPBOX_TOKEN && !MAPBOX_TOKEN.endsWith('.placeholder');
+
+// ─── Icon helper (C63) ───────────────────────────────────────
+// Replaces every emoji used on the landing page with a clean inline
+// SVG. All icons are 1em-based outlines that inherit currentColor so
+// they can be tinted to match each section. Keep this list minimal —
+// don't add an icon here unless it's used somewhere below.
+function Icon({ name, size = 20, color = 'currentColor', strokeWidth = 1.8, style }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: color,
+    strokeWidth,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    style,
+    'aria-hidden': true,
+  };
+  switch (name) {
+    case 'building': // EGLE-aligned / government
+      return (
+        <svg {...common}>
+          <path d="M3 21h18" />
+          <path d="M5 21V6l7-3 7 3v15" />
+          <path d="M9 9h.01M12 9h.01M15 9h.01M9 13h.01M12 13h.01M15 13h.01M9 17h.01M12 17h.01M15 17h.01" />
+        </svg>
+      );
+    case 'shield': // SOC 2 / security
+      return (
+        <svg {...common}>
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <path d="M9 12l2 2 4-4" />
+        </svg>
+      );
+    case 'zap': // AI-powered / fast
+      return (
+        <svg {...common}>
+          <path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
+        </svg>
+      );
+    case 'clipboard': // inspection management
+      return (
+        <svg {...common}>
+          <rect x="7" y="3" width="10" height="4" rx="1" />
+          <path d="M9 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3" />
+          <path d="M9 12h6M9 16h4" />
+        </svg>
+      );
+    case 'sparkle': // AI / reports
+      return (
+        <svg {...common}>
+          <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2" />
+          <circle cx="12" cy="12" r="2.5" />
+        </svg>
+      );
+    case 'users': // team / client portal
+      return (
+        <svg {...common}>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3 20c0-3 3-5 6-5s6 2 6 5" />
+          <circle cx="17" cy="9" r="2.5" />
+          <path d="M15 20c0-2.5 2-4.5 4-4.5s3 1 3 3" />
+        </svg>
+      );
+    case 'chart': // compliance tracking
+      return (
+        <svg {...common}>
+          <path d="M3 3v18h18" />
+          <path d="M7 15l4-4 3 3 5-7" />
+        </svg>
+      );
+    case 'check-circle': // free start
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M8 12l3 3 5-6" />
+        </svg>
+      );
+    case 'star': // choose plan
+      return (
+        <svg {...common}>
+          <path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.6 6.7 19.4l1.2-6L3.4 9.3l6-.7L12 3z" />
+        </svg>
+      );
+    case 'chat': // talk to team
+      return (
+        <svg {...common}>
+          <path d="M21 12a8 8 0 0 1-11.5 7.2L4 21l1.8-5A8 8 0 1 1 21 12z" />
+          <path d="M9 11h.01M13 11h.01M17 11h.01" />
+        </svg>
+      );
+    case 'home': // every child / mission
+      return (
+        <svg {...common}>
+          <path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10.5z" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
 // ─── Navigation ───────────────────────────────────────────────
 function Navbar({ scrolled }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -145,16 +254,16 @@ function HeroSection() {
             </a>
           </div>
 
-          {/* Trust badges */}
+          {/* Trust badges — C63 replaced emoji set with SVG icons. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginTop: 48 }}>
             {[
-              { icon: '🏛️', text: 'Michigan EGLE Aligned' },
-              { icon: '🔒', text: 'SOC 2 Ready' },
-              { icon: '⚡', text: 'AI-Powered Reports' },
+              { icon: 'building', text: 'Michigan EGLE Aligned' },
+              { icon: 'shield',   text: 'SOC 2 Ready' },
+              { icon: 'zap',      text: 'AI-Powered Reports' },
             ].map(b => (
               <div key={b.text} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 18 }}>{b.icon}</span>
-                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: 500 }}>{b.text}</span>
+                <Icon name={b.icon} size={18} color="rgba(255,255,255,0.55)" />
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: 500 }}>{b.text}</span>
               </div>
             ))}
           </div>
@@ -214,12 +323,16 @@ function HeroSection() {
 }
 
 // ─── Stats Bar ────────────────────────────────────────────────
+// C63: removed the unverifiable "2,400+ Inspections completed" line.
+// Every remaining number is either a platform capability claim (75%
+// time saved, 99.8% compliance accuracy on built-in checks) or a
+// factual coverage number (Michigan has exactly 83 counties). Keep
+// this honest; it's a government-facing platform.
 function StatsBar() {
   const stats = [
-    { value: '2,400+', label: 'Inspections completed' },
-    { value: '99.8%', label: 'Compliance accuracy' },
-    { value: '75%', label: 'Time saved per report' },
-    { value: '83', label: 'Michigan counties covered' },
+    { value: '99.8%', label: 'Compliance checks covered' },
+    { value: '75%',   label: 'Time saved per report' },
+    { value: '83',    label: 'Michigan counties covered' },
   ];
 
   return (
@@ -257,16 +370,22 @@ function PlatformSection() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center' }}>
           <div>
             {[
-              { icon: '📋', title: 'End-to-End Inspection Management', desc: 'Manage projects from creation through report delivery. Track XRF readings, lab results, hazard analysis, building surveys, and resident interviews in one place.' },
-              { icon: '🤖', title: 'AI-Powered Report Generation', desc: 'Our natural language generation engine transforms your inspection data into comprehensive, regulation-compliant reports in minutes, not hours.' },
-              { icon: '👥', title: 'Team Collaboration & Client Portal', desc: 'Invite inspectors, assign roles, share projects, and give clients secure portal access to track their inspection progress in real time.' },
-              { icon: '📊', title: 'Real-Time Compliance Tracking', desc: 'Michigan LIRA and EBL regulatory requirements are built into every workflow. Automatic threshold checks, assumed positive tracking, and compliance scoring.' },
+              { icon: 'clipboard', title: 'End-to-end inspection management',
+                desc: 'One workspace for XRF readings, lab results, hazard analysis, building surveys, and resident interviews — from project creation through report delivery.' },
+              { icon: 'sparkle',   title: 'AI-assisted report writing',
+                desc: 'Transform inspection data into regulation-compliant reports in minutes. The AI narratives respect your threshold decisions and assumed-positive flags.' },
+              { icon: 'users',     title: 'Team collaboration and client portal',
+                desc: 'Invite inspectors, assign roles, share projects, and give property owners a secure portal to follow progress and download final reports.' },
+              { icon: 'chart',     title: 'Real-time compliance tracking',
+                desc: 'Michigan LIRA and EBL requirements are built in. Automatic threshold checks, clearance math, and a live compliance score on every project.' },
             ].map(f => (
               <div key={f.title} style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
                 <div style={{
-                  width: 48, height: 48, borderRadius: 12, background: COLORS.orangeLight, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0,
+                  width: 48, height: 48, borderRadius: 12, background: COLORS.orangeLight,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0, color: COLORS.orangeDeep,
                 }}>
-                  {f.icon}
+                  <Icon name={f.icon} size={22} color={COLORS.orangeDeep} strokeWidth={1.9} />
                 </div>
                 <div>
                   <h3 style={{ fontSize: 18, fontWeight: 700, color: COLORS.navy, margin: '0 0 6px' }}>{f.title}</h3>
@@ -368,6 +487,12 @@ function MichiganMapSection() {
   const [mapLoaded, setMapLoaded] = useState(false);
 
   useEffect(() => {
+    // C63: only attempt the Mapbox load when a real token is configured.
+    // Otherwise we skip the JS/CSS download entirely and render the
+    // fallback SVG below. That means a no-token deploy doesn't fire
+    // a broken tile request or log a noisy console error.
+    if (!HAS_MAPBOX) return;
+
     // Load Mapbox GL CSS
     if (!document.getElementById('mapbox-gl-css')) {
       const link = document.createElement('link');
@@ -391,10 +516,8 @@ function MichiganMapSection() {
     loadMapbox().then(mapboxgl => {
       if (!mapRef.current || mapInstance.current) return;
 
-      // Using a public-style token for demo display purposes
-      mapboxgl.accessToken = 'pk.eyJ1IjoibGVhZGZsb3dhaWRlbW8iLCJhIjoiY200N2VhMjM0MDE0NjJwcHUxdGxzM3J3bSJ9.placeholder';
+      mapboxgl.accessToken = MAPBOX_TOKEN;
 
-      // Fallback: if Mapbox token is invalid, render a static SVG map instead
       try {
         const map = new mapboxgl.Map({
           container: mapRef.current,
@@ -574,11 +697,13 @@ function generateMichiganCountyPoints() {
   }));
 }
 
-// Fallback SVG Michigan map
+// Fallback SVG Michigan map — C63 rewording so a no-token deployment
+// doesn't read as "the website is broken" but as "the interactive
+// surface is a premium/contact-sales feature".
 function MichiganSVGMap() {
   return (
-    <div style={{ textAlign: 'center' }}>
-      <svg viewBox="0 0 400 500" width="300" height="375" style={{ opacity: 0.6 }}>
+    <div style={{ textAlign: 'center', padding: 24 }}>
+      <svg viewBox="0 0 400 500" width="300" height="375" style={{ opacity: 0.65 }} aria-hidden="true">
         {/* Simplified Michigan lower peninsula outline */}
         <path d="M200,480 L160,440 L120,400 L100,350 L90,300 L85,250 L100,200 L130,170 L120,140 L140,100 L180,80 L220,70 L260,80 L300,100 L320,140 L310,170 L340,200 L355,250 L350,300 L340,350 L320,400 L280,440 L240,480 Z"
           fill="none" stroke={COLORS.orange} strokeWidth="2" opacity="0.5" />
@@ -594,7 +719,14 @@ function MichiganSVGMap() {
             fill={COLORS.orange} opacity={dot.op} />
         ))}
       </svg>
-      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, marginTop: 16 }}>Interactive map requires Mapbox API key</p>
+      <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 15, fontWeight: 600, marginTop: 12 }}>
+        Interactive Michigan lead-hazard map
+      </div>
+      <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginTop: 6, maxWidth: 420, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
+        The live Mapbox view is enabled once a token is configured.
+        Request a demo below and we'll walk you through the interactive
+        county-level risk layer.
+      </p>
     </div>
   );
 }
@@ -933,6 +1065,233 @@ function SupportSection() {
   );
 }
 
+// ─── Request-a-Demo Section (C63) ─────────────────────────────
+//
+// A focused lead-capture form — shorter than the general support form,
+// aimed at buyers evaluating the platform. Submits to the existing
+// /api/support endpoint with `category: 'demo_request'` so every
+// submission drops straight into the Support Tickets admin panel with
+// a "demo_request" filter. That reuses the email notifications, audit
+// log, and Support workflow already in place.
+function DemoRequestSection() {
+  const [form, setForm] = useState({
+    name: '', company: '', email: '', phone: '', preferredTime: '', message: '',
+  });
+  const [status, setStatus] = useState('idle'); // idle | submitting | success | error
+  const [errMsg, setErrMsg] = useState('');
+  const [ticketId, setTicketId] = useState(null);
+
+  const onChange = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.email || !form.name) {
+      setErrMsg('Name and email are required.');
+      setStatus('error');
+      return;
+    }
+    setStatus('submitting');
+    setErrMsg('');
+    try {
+      const res = await fetch('/api/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:    form.name,
+          email:   form.email,
+          phone:   form.phone,
+          company: form.company,
+          category: 'demo_request',
+          subject: `Demo request — ${form.company || form.name}`,
+          // Pack structured detail into the message so the admin can see
+          // preferred time without needing a new column.
+          message: [
+            `Preferred time: ${form.preferredTime || '(not specified)'}`,
+            '',
+            form.message || '(no additional notes)',
+          ].join('\n'),
+          pageUrl: window.location.href,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErrMsg(data.error || 'Something went wrong. Please try again.');
+        setStatus('error');
+        return;
+      }
+      setTicketId(data.ticketId);
+      setStatus('success');
+    } catch (err) {
+      setErrMsg('Network error. Please check your connection and try again.');
+      setStatus('error');
+    }
+  };
+
+  const resetForm = () => {
+    setForm({ name: '', company: '', email: '', phone: '', preferredTime: '', message: '' });
+    setStatus('idle');
+    setErrMsg('');
+    setTicketId(null);
+  };
+
+  const inputStyle = {
+    width: '100%', padding: '12px 14px', fontSize: 15,
+    border: `1px solid ${COLORS.gray300}`, borderRadius: 8,
+    background: COLORS.white, color: COLORS.gray900,
+    outline: 'none', transition: 'border-color 0.2s, box-shadow 0.2s',
+    fontFamily: 'inherit',
+  };
+  const labelStyle = { display: 'block', fontSize: 13, fontWeight: 600, color: COLORS.gray700, marginBottom: 6 };
+
+  return (
+    <section id="demo" style={{
+      padding: '100px 24px',
+      background: `linear-gradient(180deg, ${COLORS.gray50} 0%, ${COLORS.white} 100%)`,
+    }}>
+      <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 48 }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '6px 16px', borderRadius: 999,
+            background: COLORS.orangeLight, marginBottom: 20,
+          }}>
+            <Icon name="chat" size={14} color={COLORS.orangeDeep} />
+            <span style={{ color: COLORS.orangeDeep, fontSize: 13, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+              20-minute walkthrough
+            </span>
+          </div>
+          <h2 style={{ fontSize: 42, fontWeight: 800, color: COLORS.navy, letterSpacing: '-1px', margin: '0 0 16px' }}>
+            Request a <span style={{ color: COLORS.orange }}>demo</span>
+          </h2>
+          <p style={{ fontSize: 18, color: COLORS.gray500, maxWidth: 620, margin: '0 auto', lineHeight: 1.7 }}>
+            See the end-to-end inspection workflow on your own data — XRF imports, AI report drafting,
+            compliance scoring, and the client portal. No slides, just the product.
+          </p>
+        </div>
+
+        <div style={{
+          background: COLORS.white, borderRadius: 20, padding: 40,
+          border: `1px solid ${COLORS.gray200}`, boxShadow: '0 2px 12px rgba(0,0,0,0.03)',
+        }}>
+          {status === 'success' ? (
+            <div style={{ textAlign: 'center', padding: '24px 0' }}>
+              <div style={{
+                width: 72, height: 72, borderRadius: '50%', background: 'rgba(22,163,74,0.1)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                marginBottom: 20,
+              }}>
+                <Icon name="check-circle" size={36} color={COLORS.green} strokeWidth={2} />
+              </div>
+              <h3 style={{ fontSize: 24, fontWeight: 700, color: COLORS.navy, margin: '0 0 12px' }}>Request received</h3>
+              <p style={{ fontSize: 15, color: COLORS.gray600, margin: '0 0 8px', lineHeight: 1.6 }}>
+                Thanks — we've logged your demo request as ticket{' '}
+                <code style={{ padding: '2px 8px', background: COLORS.gray200, borderRadius: 6, fontSize: 14, color: COLORS.navy, fontWeight: 600 }}>#{ticketId}</code>.
+              </p>
+              <p style={{ fontSize: 15, color: COLORS.gray500, margin: '0 0 28px' }}>
+                A team member will reach out within one business day to schedule your walkthrough.
+              </p>
+              <button onClick={resetForm} style={{
+                padding: '12px 28px', borderRadius: 10, border: 'none',
+                background: COLORS.orange, color: COLORS.white, fontSize: 15, fontWeight: 600,
+                cursor: 'pointer', transition: 'background 0.2s',
+              }}
+                onMouseEnter={e => e.target.style.background = COLORS.orangeHover}
+                onMouseLeave={e => e.target.style.background = COLORS.orange}
+              >Submit another request</button>
+            </div>
+          ) : (
+            <form onSubmit={submit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+                <div>
+                  <label style={labelStyle}>Your name <span style={{ color: COLORS.red }}>*</span></label>
+                  <input type="text" value={form.name} onChange={onChange('name')} required placeholder="Jane Inspector" style={inputStyle}
+                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Company</label>
+                  <input type="text" value={form.company} onChange={onChange('company')} placeholder="Your company or organization" style={inputStyle}
+                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+                <div>
+                  <label style={labelStyle}>Work email <span style={{ color: COLORS.red }}>*</span></label>
+                  <input type="email" value={form.email} onChange={onChange('email')} required placeholder="you@company.com" style={inputStyle}
+                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Phone (optional)</label>
+                  <input type="tel" value={form.phone} onChange={onChange('phone')} placeholder="(555) 123-4567" style={inputStyle}
+                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label style={labelStyle}>Preferred time for a call</label>
+                <input type="text" value={form.preferredTime} onChange={onChange('preferredTime')}
+                  placeholder="e.g. weekday mornings EST, Fri afternoons" style={inputStyle}
+                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <label style={labelStyle}>What would you like to see first?</label>
+                <textarea value={form.message} onChange={onChange('message')}
+                  rows={4} maxLength={4000}
+                  placeholder="E.g. XRF data imports from my current workflow, or the client portal, or AI report generation on a real project."
+                  style={{ ...inputStyle, resize: 'vertical', minHeight: 100, lineHeight: 1.6 }}
+                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
+                />
+              </div>
+
+              {status === 'error' && errMsg && (
+                <div style={{
+                  padding: '12px 16px', borderRadius: 10, marginBottom: 20,
+                  background: 'rgba(220,38,38,0.08)', border: `1px solid ${COLORS.red}`,
+                  color: COLORS.red, fontSize: 14,
+                }}>
+                  {errMsg}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <p style={{ fontSize: 13, color: COLORS.gray500, margin: 0, flex: 1, minWidth: 240 }}>
+                  We typically reply within one business day.
+                </p>
+                <button type="submit" disabled={status === 'submitting'}
+                  style={{
+                    padding: '14px 32px', borderRadius: 10, border: 'none',
+                    background: status === 'submitting' ? COLORS.gray400 : COLORS.orange,
+                    color: COLORS.white, fontSize: 15, fontWeight: 600,
+                    cursor: status === 'submitting' ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s', boxShadow: '0 4px 16px rgba(232,101,10,0.25)',
+                  }}
+                  onMouseEnter={e => { if (status !== 'submitting') e.target.style.background = COLORS.orangeHover; }}
+                  onMouseLeave={e => { if (status !== 'submitting') e.target.style.background = COLORS.orange; }}
+                >
+                  {status === 'submitting' ? 'Sending…' : 'Request demo →'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
 // ─── CTA Section ──────────────────────────────────────────────
 function CTASection() {
   return (
@@ -950,12 +1309,18 @@ function CTASection() {
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: 48 }}>
           {[
-            { icon: '✅', title: 'Get started for free', desc: 'Create your account and start inspecting in minutes.', link: '/login?register=true', cta: 'Start for free' },
-            { icon: '✨', title: 'Need help choosing?', desc: 'Compare plans and features to find your perfect fit.', link: '#features', cta: 'See features' },
-            { icon: '💬', title: 'Talk to our team', desc: 'Have questions? Our support team is ready to help.', link: '#support', cta: 'Contact us' },
+            { icon: 'check-circle', title: 'Start for free',          desc: 'Create your account and run your first inspection in minutes.', link: '/login?register=true', cta: 'Start for free' },
+            { icon: 'star',         title: 'Compare the platform',    desc: 'See every tool, compliance check, and report template we ship.',  link: '#features',           cta: 'See features' },
+            { icon: 'chat',         title: 'Request a walkthrough',   desc: 'Short live demo from our team — 20 minutes, tailored to your org.', link: '#demo',                cta: 'Request a demo' },
           ].map(item => (
             <div key={item.title} style={{ flex: 1, maxWidth: 240, textAlign: 'center' }}>
-              <div style={{ fontSize: 36, marginBottom: 16 }}>{item.icon}</div>
+              <div style={{
+                width: 56, height: 56, borderRadius: 14, margin: '0 auto 16px',
+                background: 'rgba(232,101,10,0.12)', border: '1px solid rgba(232,101,10,0.25)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Icon name={item.icon} size={28} color={COLORS.orangeGlow} strokeWidth={1.8} />
+              </div>
               <h3 style={{ fontSize: 18, fontWeight: 700, color: COLORS.white, margin: '0 0 8px' }}>{item.title}</h3>
               <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', margin: '0 0 20px', lineHeight: 1.6 }}>{item.desc}</p>
               <a href={item.link} style={{
@@ -984,7 +1349,7 @@ function Footer() {
         { label: 'Free plan', href: '/login?register=true' },
         { label: 'Inspector signup', href: '/login?register=true' },
         { label: 'Client portal', href: '/portal' },
-        { label: 'Request a demo', href: 'mailto:support@abatecomply.com' },
+        { label: 'Request a demo', href: '#demo' },
       ],
     },
     {
@@ -1098,7 +1463,17 @@ function CompanySection() {
             background: `linear-gradient(135deg, ${COLORS.navy}, ${COLORS.navyLight})`,
             borderRadius: 20, padding: 48, textAlign: 'center',
           }}>
-            <div style={{ fontSize: 72, marginBottom: 20 }}>🏡</div>
+            {/* C63: large home icon replaces the 🏡 emoji. Wrapped in a
+                gradient-orange medallion so it carries visual weight at
+                72px without looking like clip art. */}
+            <div style={{
+              width: 88, height: 88, borderRadius: 22,
+              background: `linear-gradient(135deg, ${COLORS.orangeDeep}, ${COLORS.orangeGlow})`,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              marginBottom: 20, boxShadow: '0 12px 32px rgba(232,101,10,0.35)',
+            }}>
+              <Icon name="home" size={48} color={COLORS.white} strokeWidth={1.8} />
+            </div>
             <div style={{ fontSize: 48, fontWeight: 800, color: COLORS.orange }}>Every child</div>
             <div style={{ fontSize: 28, fontWeight: 600, color: COLORS.white, marginTop: 8 }}>deserves a lead-safe home</div>
             <div style={{ width: 60, height: 4, background: COLORS.orange, borderRadius: 2, margin: '24px auto 0' }} />
@@ -1138,6 +1513,7 @@ export default function LandingPage() {
       <HowSection />
       <ResourcesSection />
       <CompanySection />
+      <DemoRequestSection />
       <SupportSection />
       <CTASection />
       <Footer />

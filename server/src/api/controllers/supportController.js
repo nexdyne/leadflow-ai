@@ -6,7 +6,11 @@ import {
 
 // ─── helpers ────────────────────────────────────────────
 
-const VALID_CATEGORIES = ['general', 'bug', 'billing', 'feature', 'onboarding', 'account'];
+// C63: `demo_request` added so the landing-page Request-a-Demo form can
+// drop straight into the Support Tickets admin panel. No new table,
+// no new endpoint — reuses the existing ticket lifecycle + email
+// notifications + audit log.
+const VALID_CATEGORIES = ['general', 'bug', 'billing', 'feature', 'onboarding', 'account', 'demo_request'];
 const VALID_STATUSES   = ['new', 'open', 'waiting', 'resolved', 'closed'];
 const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'];
 
