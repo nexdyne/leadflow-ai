@@ -442,10 +442,13 @@ function UsersPanel() {
     }
   };
 
-  const handleDeactivate = async (userId) => {
-    if (!confirm('Deactivate this account? The user will lose access immediately. You can reactivate them later from the Deactivated tab.')) return;
+  // C59: replaces the prior confirm() dialog with a proper modal that
+  // collects an optional reason and an opt-in notification checkbox.
+  // The raw backend call lives here; the modal just collects payload.
+  const submitDeactivate = async (userId, body) => {
     try {
-      await apiCall('DELETE', `/platform/users/${userId}`);
+      await apiCall('DELETE', `/platform/users/${userId}`, body || {});
+      setActionModal(null);
       reloadAll();
     } catch (err) {
       alert('Failed to deactivate: ' + err.message);
@@ -689,7 +692,13 @@ function UsersPanel() {
                         <button onClick={() => handleReactivate(u.id)} style={actionBtnStyle('#10b981')}>Reactivate</button>
                       )}
                       {s !== 'deactivated' && (
-                        <button onClick={() => handleDeactivate(u.id)} style={actionBtnStyle('#ef4444')} title="Deactivate this account (reversible from the Deactivated tab)">Deactivate</button>
+                        <button
+                          onClick={() => setActionModal({ type: 'deactivate', userId: u.id, userName: u.fullName || u.email, userEmail: u.email })}
+                          style={actionBtnStyle('#ef4444')}
+                          title="Deactivate this account (reversible from the Deactivated tab)"
+                        >
+                          Deactivate
+                        </button>
                       )}
                     </div>
                   </td>
@@ -714,6 +723,14 @@ function UsersPanel() {
         <SuspendModal
           userName={actionModal.userName}
           onConfirm={(reason) => handleSuspend(actionModal.userId, reason)}
+          onCancel={() => setActionModal(null)}
+        />
+      )}
+      {actionModal && actionModal.type === 'deactivate' && (
+        <DeactivateModal
+          userName={actionModal.userName}
+          userEmail={actionModal.userEmail}
+          onConfirm={(body) => submitDeactivate(actionModal.userId, body)}
           onCancel={() => setActionModal(null)}
         />
       )}
@@ -1308,6 +1325,89 @@ function SuspendModal({ userName, onConfirm, onCancel }) {
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onCancel} style={actionBtnStyle('#475569')}>Cancel</button>
           <button onClick={() => onConfirm(reason)} style={actionBtnStyle('#ef4444')}>Suspend Account</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// C59: DeactivateModal — replaces the prior bare confirm() dialog.
+// Collects an optional reason the admin wants recorded on the row, and
+// an explicit "Email the user" checkbox that defaults to OFF. Backend
+// deleteUser accepts { reason, sendEmail } and only fires the Resend
+// template when sendEmail === true.
+//
+// Design notes:
+//   - Escape-to-close matches the C50 share-modal pattern (keyboard a11y).
+//   - Checkbox is OFF by default because deactivation can be used for
+//     spam/fraud cases where notifying the user is counter-productive.
+//     Admins opting in to notify a paying customer is the explicit UX.
+//   - The cautionary tone uses the slate palette (final state, not a
+//     red alarm) to match the row status badge color.
+function DeactivateModal({ userName, userEmail, onConfirm, onCancel }) {
+  const [reason, setReason] = useState('');
+  const [sendEmail, setSendEmail] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onCancel();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  return (
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
+        <h3 style={{ color: '#f1f5f9', marginBottom: '6px' }}>Deactivate {userName}</h3>
+        <div style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '14px' }}>
+          Sign-in access is revoked immediately. Data is preserved.
+          Reversible from the Deactivated tab.
+        </div>
+
+        <label style={{ color: '#94a3b8', fontSize: '13px' }}>Reason (optional)</label>
+        <textarea
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+          placeholder="Why is this account being deactivated?"
+          style={{ ...inputDarkStyle, height: '80px', resize: 'vertical', marginTop: '4px', marginBottom: '14px' }}
+        />
+
+        <label
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: '10px',
+            padding: '10px 12px',
+            background: '#0f172a',
+            border: '1px solid #334155',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            marginBottom: '16px',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={sendEmail}
+            onChange={e => setSendEmail(e.target.checked)}
+            style={{ marginTop: 2, accentColor: '#64748b' }}
+          />
+          <div>
+            <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600 }}>
+              Email the user about this
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: 2 }}>
+              Sends a notification to {userEmail || 'their email on file'} explaining that access has been revoked and how to contact support. Off by default.
+            </div>
+          </div>
+        </label>
+
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={actionBtnStyle('#475569')}>Cancel</button>
+          <button onClick={() => onConfirm({ reason, sendEmail })} style={actionBtnStyle('#ef4444')}>
+            Deactivate Account
+          </button>
         </div>
       </div>
     </div>

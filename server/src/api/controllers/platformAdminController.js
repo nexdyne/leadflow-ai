@@ -5,6 +5,7 @@ import {
   sendAnnouncementEmail,
   sendAccountSuspendedEmail,
   sendAccountReactivatedEmail,
+  sendAccountDeactivatedEmail,
   sendAdminPasswordResetEmail,
 } from '../../utils/email.js';
 import { getBillingSummaryForAdmin } from './billingController.js';
@@ -506,8 +507,14 @@ export async function reactivateUser(req, res) {
 // user.deactivated; callers reading older audit history may still see
 // user.deleted entries from pre-C57 events.
 //
-// Optional body: { reason?: string } — user-facing reason recorded on
-// the row. C59 will add { sendEmail: boolean } for opt-in notification.
+// Optional body: { reason?: string, sendEmail?: boolean }
+//   reason    — user-facing reason recorded on the row and, when
+//               sendEmail is true, included in the notification email.
+//   sendEmail — C59: opt-in notification. Defaults to FALSE. When true,
+//               the user receives a deactivation email via Resend.
+//               Admins can deactivate silently (spam/fraud) or notify
+//               (paying customer off-boarding) — the choice is explicit
+//               per action, never auto-send.
 export async function deleteUser(req, res) {
   try {
     await requirePlatformAdmin(req.user.userId);
@@ -516,15 +523,19 @@ export async function deleteUser(req, res) {
   }
 
   const { id } = req.params;
-  const { reason } = req.body || {};
+  const { reason, sendEmail } = req.body || {};
 
   // C53: block self-deactivation before any DB work.
   if (parseInt(id, 10) === req.user.userId) {
     return res.status(400).json({ error: 'Cannot deactivate your own account — ask another platform admin.' });
   }
 
-  // Don't deactivate platform admins
-  const check = await query('SELECT is_platform_admin FROM users WHERE id = $1', [id]);
+  // Don't deactivate platform admins. Also pull email/name up front so
+  // we can send the opt-in notification after the UPDATE succeeds.
+  const check = await query(
+    'SELECT is_platform_admin, email, full_name FROM users WHERE id = $1',
+    [id]
+  );
   if (check.rows.length === 0) return res.status(404).json({ error: 'User not found' });
   if (check.rows[0].is_platform_admin) return res.status(403).json({ error: 'Cannot deactivate platform admin' });
 
@@ -543,16 +554,29 @@ export async function deleteUser(req, res) {
   // Revoke sessions
   await query('UPDATE sessions SET is_revoked = true WHERE user_id = $1', [id]);
 
+  // C59: opt-in notification. Fire-and-forget — catches its own errors
+  // so an email failure never bubbles up as a 500 to the admin.
+  let emailSent = false;
+  if (sendEmail === true) {
+    emailSent = true; // intent-to-send; the template itself may silently
+                      // fall back to no-op if RESEND_API_KEY isn't set.
+    sendAccountDeactivatedEmail(
+      check.rows[0].email,
+      check.rows[0].full_name,
+      reason || null
+    ).catch(err => console.error('Account deactivated email failed:', err.message));
+  }
+
   await auditLog(
     req.user.userId,
     req.user.email,
     'user.deactivated',
     'user',
     parseInt(id),
-    { reason: reason || null }
+    { reason: reason || null, sendEmail: !!sendEmail }
   );
 
-  res.json({ success: true });
+  res.json({ success: true, emailSent });
 }
 
 // PUT /api/platform/users/:id/reset-password — force reset a user's password.

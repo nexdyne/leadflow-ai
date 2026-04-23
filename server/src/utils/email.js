@@ -499,6 +499,60 @@ export async function sendAccountReactivatedEmail(to, fullName, isPlatformAdmin 
 
 
 // ═══════════════════════════════════════════════════════════
+//  14b. ACCOUNT DEACTIVATED (C59)
+// ═══════════════════════════════════════════════════════════
+//
+// Intentionally distinct from the Suspended template:
+//   - "Permanently revoked" vs "temporarily suspended".
+//   - Slate palette (final state, not an alarm).
+//   - Contact Support CTA only — no Sign In button, because the account
+//     literally cannot sign in. A Sign In button would be a dead end.
+//   - The reason line is optional; if the caller passes null we show
+//     a generic statement rather than an empty block.
+//
+// This email only fires when the platform admin explicitly opts in via
+// the Deactivate modal's "Email the user" checkbox. Default is off —
+// deactivations are silent unless the admin chose to notify.
+
+export async function sendAccountDeactivatedEmail(to, fullName, reason) {
+  const subject = 'Your LeadFlow AI account has been deactivated';
+  const reasonBlock = reason
+    ? `
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px; margin:16px 0;">
+        <div style="color:#64748b; font-size:13px; margin-bottom:8px;">Reason provided by the administrator:</div>
+        <div style="color:#1e293b; font-size:14px; line-height:1.6;">${reason}</div>
+      </div>`
+    : '';
+  const html = emailLayout(subject, `
+    <h2 style="margin:0 0 12px; color:#475569; font-size:20px;">Account Deactivated</h2>
+    <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
+      Hi ${fullName || 'there'},
+    </p>
+    <p style="color:#475569; line-height:1.6; margin:0 0 16px;">
+      Your ${APP_NAME} account has been deactivated by a platform administrator.
+      You will no longer be able to sign in, and any active sessions have been ended.
+    </p>
+    <div style="background:#f1f5f9; border:1px solid #cbd5e1; border-radius:8px; padding:16px; margin:16px 0; border-left:4px solid #64748b;">
+      <div style="color:#334155; font-size:14px; font-weight:600; margin-bottom:8px;">What this means</div>
+      <ul style="color:#475569; font-size:13px; line-height:1.8; margin:0; padding-left:20px;">
+        <li>Your sign-in access has been revoked.</li>
+        <li>Your data is preserved — reports, projects, and history remain on file.</li>
+        <li>If this decision was made in error, contact support to request reactivation.</li>
+      </ul>
+    </div>
+    ${reasonBlock}
+    <p style="color:#64748b; font-size:13px; line-height:1.6; margin:16px 0 0;">
+      If you have questions or believe this was an error, please reach out to the
+      ${APP_NAME} support team.
+    </p>
+    ${buttonHtml('Contact Support', 'mailto:admin@abatecomply.com', '#475569')}
+  `);
+
+  return sendEmail(to, subject, html, 'account_deactivated');
+}
+
+
+// ═══════════════════════════════════════════════════════════
 //  15. ADMIN NEW USER ALERT
 // ═══════════════════════════════════════════════════════════
 
