@@ -562,69 +562,6 @@ function MichiganMapSection() {
             }
           });
 
-          // C65: geographic framing on top of the heatmap.
-          // Uses Mapbox Streets v8 (free with public token) for admin boundaries.
-          //   - county lines: ALL US counties, subtle white so they don't fight the heatmap
-          //   - state lines: ALL US states, slightly brighter for continental framing
-          //   - MI border: bold orange to anchor the eye on Michigan
-          // Source layer `admin` carries admin_level=1 (states) and admin_level=2
-          // (counties in US). The `maritime` filter keeps lines off the Great Lakes.
-          // These three layers are added BEFORE `risk-points` so the markers stay on
-          // top and remain clickable.
-          map.addSource('mbx-admin', {
-            type: 'vector',
-            url: 'mapbox://mapbox.mapbox-streets-v8',
-          });
-
-          map.addLayer({
-            id: 'mi-county-lines',
-            type: 'line',
-            source: 'mbx-admin',
-            'source-layer': 'admin',
-            filter: ['all',
-              ['==', ['get', 'admin_level'], 2],
-              ['!=', ['get', 'maritime'], 'true'],
-              ['==', ['get', 'iso_3166_1'], 'US'],
-            ],
-            paint: {
-              'line-color': 'rgba(255,255,255,0.18)',
-              'line-width': 0.8,
-            },
-          });
-
-          map.addLayer({
-            id: 'us-state-lines',
-            type: 'line',
-            source: 'mbx-admin',
-            'source-layer': 'admin',
-            filter: ['all',
-              ['==', ['get', 'admin_level'], 1],
-              ['!=', ['get', 'maritime'], 'true'],
-              ['==', ['get', 'iso_3166_1'], 'US'],
-            ],
-            paint: {
-              'line-color': 'rgba(255,255,255,0.40)',
-              'line-width': 1,
-            },
-          });
-
-          map.addLayer({
-            id: 'mi-state-border',
-            type: 'line',
-            source: 'mbx-admin',
-            'source-layer': 'admin',
-            filter: ['all',
-              ['==', ['get', 'admin_level'], 1],
-              ['!=', ['get', 'maritime'], 'true'],
-              ['==', ['get', 'iso_3166_2'], 'US-MI'],
-            ],
-            paint: {
-              'line-color': COLORS.orange,
-              'line-width': 2.5,
-              'line-opacity': 0.85,
-            },
-          });
-
           // Add circle markers for cities
           map.addLayer({
             id: 'risk-points',
@@ -658,16 +595,8 @@ function MichiganMapSection() {
           });
         });
 
-        // C65.2: map.on('error') fires during init for benign things like
-        // transient tile fetches — we must NEVER flip mapLoaded to false
-        // from here or the SVG fallback re-renders on top of the working
-        // live map. Initial state is already false, so if load never
-        // fires (invalid token, network down) the SVG stays visible and
-        // that's correct. Only the 'load' handler flips to true.
-        map.on('error', (e) => {
-          if (e && e.error && e.error.message) {
-            console.warn('[Mapbox]', e.error.message);
-          }
+        map.on('error', () => {
+          setMapLoaded(false);
         });
       } catch (e) {
         setMapLoaded(false);
