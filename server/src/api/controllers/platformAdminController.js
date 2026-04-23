@@ -29,6 +29,18 @@ function escapeIlike(str) {
   return str.replace(/[%_\\]/g, '\\$&');
 }
 
+// ─── Helper: clamp a ?limit= query param (C61) ───────────
+// Upper bound 200 matches the existing pattern in listProjects (L1107).
+// Without this, a single `GET /users?limit=9999999` could stall the pg
+// connection pool (default size 10) by forcing a wide query + two
+// correlated subselects per row. Clamp to [1, 200]; fall back to 25
+// when the value is missing or non-numeric.
+function clampLimit(raw, fallback = 25) {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(200, n);
+}
+
 // ─── Helper: log an audit event ─────────────────────────
 async function auditLog(actorId, actorEmail, action, targetType, targetId, details = {}) {
   try {
@@ -155,8 +167,10 @@ export async function listUsers(req, res) {
     return res.status(err.status || 403).json({ error: err.message });
   }
 
-  const { search, role, status, sort = 'created_at', order = 'desc', page = 1, limit = 50 } = req.query;
-  const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+  const { search, role, status, sort = 'created_at', order = 'desc', page = 1 } = req.query;
+  // C61: clamp limit to prevent connection-pool DoS via ?limit=9999999.
+  const limit = clampLimit(req.query.limit, 50);
+  const offset = (Math.max(1, parseInt(page)) - 1) * limit;
   const params = [];
   const conditions = ["u.is_platform_admin = false"];
 
@@ -209,7 +223,7 @@ export async function listUsers(req, res) {
        WHERE ${where}
        ORDER BY u.${sortCol} ${sortOrder}
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, parseInt(limit), offset]
+      [...params, limit, offset]
     ),
   ]);
 
@@ -233,7 +247,7 @@ export async function listUsers(req, res) {
     })),
     total: parseInt(countResult.rows[0].count),
     page: parseInt(page),
-    limit: parseInt(limit),
+    limit, // C61: already clamped above
   });
 }
 
@@ -385,9 +399,17 @@ export async function suspendUser(req, res) {
   const { id } = req.params;
   const { reason } = req.body;
 
+  // C61: parse-and-400 before any DB work. Mirrors resetUserPassword at
+  // this file. Without this, '/:id/suspend' with "42abc" fell through
+  // to pg as invalid-integer and returned a raw 500.
+  const targetId = parseInt(id, 10);
+  if (!Number.isFinite(targetId)) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+
   // C53: block self-suspend. Without this check, WHERE is_platform_admin = false
   // silently succeeds with 0 rows affected and the admin sees a fake "success".
-  if (parseInt(id, 10) === req.user.userId) {
+  if (targetId === req.user.userId) {
     return res.status(400).json({ error: 'Cannot suspend your own account — ask another platform admin.' });
   }
 
@@ -396,7 +418,7 @@ export async function suspendUser(req, res) {
   // beats a 500 + DB error leaking.
   const existing = await query(
     'SELECT deactivated_at FROM users WHERE id = $1 AND is_platform_admin = false',
-    [id]
+    [targetId]
   );
   if (existing.rows.length === 0) {
     return res.status(404).json({ error: 'User not found' });
@@ -407,20 +429,41 @@ export async function suspendUser(req, res) {
     });
   }
 
-  await query(
-    `UPDATE users SET suspended_at = NOW(), suspended_reason = $1, active = false, updated_at = NOW()
-     WHERE id = $2 AND is_platform_admin = false`,
-    [reason || 'Suspended by platform admin', id]
-  );
+  // C61: narrow the UPDATE to ONLY rows still non-deactivated. Closes the
+  // suspend-vs-deactivate race — if another admin deactivated the user
+  // between our SELECT and this UPDATE, the WHERE matches zero rows and
+  // we return 409 instead of leaking a raw CHECK-violation 500.
+  let updateResult;
+  try {
+    updateResult = await query(
+      `UPDATE users SET suspended_at = NOW(), suspended_reason = $1, active = false, updated_at = NOW()
+       WHERE id = $2 AND is_platform_admin = false AND deactivated_at IS NULL`,
+      [reason || 'Suspended by platform admin', targetId]
+    );
+  } catch (err) {
+    // 23514 = check_constraint_violation. Shouldn't fire given the
+    // narrowed WHERE, but keep as belt-and-suspenders.
+    if (err?.code === '23514') {
+      return res.status(409).json({
+        error: 'User was just modified by another admin. Refresh to see the current state.',
+      });
+    }
+    throw err;
+  }
+  if (updateResult.rowCount === 0) {
+    return res.status(409).json({
+      error: 'User was just modified by another admin. Refresh to see the current state.',
+    });
+  }
 
   // Revoke all active sessions
   await query(
     `UPDATE sessions SET is_revoked = true WHERE user_id = $1 AND is_revoked = false`,
-    [id]
+    [targetId]
   );
 
   // Notify the suspended user
-  const userInfo = await query('SELECT email, full_name FROM users WHERE id = $1', [id]);
+  const userInfo = await query('SELECT email, full_name FROM users WHERE id = $1', [targetId]);
   if (userInfo.rows[0]) {
     sendAccountSuspendedEmail(
       userInfo.rows[0].email,
@@ -429,7 +472,7 @@ export async function suspendUser(req, res) {
     ).catch(err => console.error('Account suspended email failed:', err.message));
   }
 
-  await auditLog(req.user.userId, req.user.email, 'user.suspended', 'user', parseInt(id), { reason });
+  await auditLog(req.user.userId, req.user.email, 'user.suspended', 'user', targetId, { reason });
 
   res.json({ success: true });
 }
@@ -444,9 +487,15 @@ export async function reactivateUser(req, res) {
 
   const { id } = req.params;
 
+  // C61: parse-and-400 before any DB work.
+  const targetId = parseInt(id, 10);
+  if (!Number.isFinite(targetId)) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+
   // C53: a platform admin's own row should never be "suspended" in the first place
   // (suspendUser blocks self-suspend), but guard here too for consistency.
-  if (parseInt(id, 10) === req.user.userId) {
+  if (targetId === req.user.userId) {
     return res.status(400).json({ error: 'Cannot reactivate your own account — your account isn\'t managed from this list.' });
   }
 
@@ -463,7 +512,7 @@ export async function reactivateUser(req, res) {
   // scanning history later to answer "when did this account come back".
   const prior = await query(
     'SELECT suspended_at, deactivated_at FROM users WHERE id = $1',
-    [id]
+    [targetId]
   );
   const wasSuspended   = !!prior.rows[0]?.suspended_at;
   const wasDeactivated = !!prior.rows[0]?.deactivated_at;
@@ -477,7 +526,7 @@ export async function reactivateUser(req, res) {
         active             = true,
         updated_at         = NOW()
      WHERE id = $1`,
-    [id]
+    [targetId]
   );
 
   // C60: pass is_platform_admin so the email CTA lands at /admin vs
@@ -486,7 +535,7 @@ export async function reactivateUser(req, res) {
   // doesn't authorize them — a dead end.
   const userInfo = await query(
     'SELECT email, full_name, is_platform_admin FROM users WHERE id = $1',
-    [id]
+    [targetId]
   );
   if (userInfo.rows[0]) {
     sendAccountReactivatedEmail(
@@ -501,7 +550,7 @@ export async function reactivateUser(req, res) {
     req.user.email,
     'user.reactivated',
     'user',
-    parseInt(id),
+    targetId,
     { priorStatus: wasDeactivated ? 'deactivated' : (wasSuspended ? 'suspended' : 'active') }
   );
 
@@ -535,8 +584,14 @@ export async function deleteUser(req, res) {
   const { id } = req.params;
   const { reason, sendEmail } = req.body || {};
 
+  // C61: parse-and-400 before any DB work.
+  const targetId = parseInt(id, 10);
+  if (!Number.isFinite(targetId)) {
+    return res.status(400).json({ error: 'Invalid user id' });
+  }
+
   // C53: block self-deactivation before any DB work.
-  if (parseInt(id, 10) === req.user.userId) {
+  if (targetId === req.user.userId) {
     return res.status(400).json({ error: 'Cannot deactivate your own account — ask another platform admin.' });
   }
 
@@ -544,25 +599,37 @@ export async function deleteUser(req, res) {
   // we can send the opt-in notification after the UPDATE succeeds.
   const check = await query(
     'SELECT is_platform_admin, email, full_name FROM users WHERE id = $1',
-    [id]
+    [targetId]
   );
   if (check.rows.length === 0) return res.status(404).json({ error: 'User not found' });
   if (check.rows[0].is_platform_admin) return res.status(403).json({ error: 'Cannot deactivate platform admin' });
 
-  await query(
-    `UPDATE users SET
-        active             = false,
-        deactivated_at     = NOW(),
-        deactivated_reason = $1,
-        suspended_at       = NULL,
-        suspended_reason   = NULL,
-        updated_at         = NOW()
-     WHERE id = $2`,
-    [reason || 'Account deactivated by platform admin', id]
-  );
+  // C61: wrap the mutation in try/catch to translate a potential
+  // CHECK-violation race (suspend-vs-deactivate) into a 409. Also
+  // explicit NULL of suspended_* keeps the invariant clean.
+  try {
+    await query(
+      `UPDATE users SET
+          active             = false,
+          deactivated_at     = NOW(),
+          deactivated_reason = $1,
+          suspended_at       = NULL,
+          suspended_reason   = NULL,
+          updated_at         = NOW()
+       WHERE id = $2`,
+      [reason || 'Account deactivated by platform admin', targetId]
+    );
+  } catch (err) {
+    if (err?.code === '23514') {
+      return res.status(409).json({
+        error: 'User was just modified by another admin. Refresh to see the current state.',
+      });
+    }
+    throw err;
+  }
 
   // Revoke sessions
-  await query('UPDATE sessions SET is_revoked = true WHERE user_id = $1', [id]);
+  await query('UPDATE sessions SET is_revoked = true WHERE user_id = $1', [targetId]);
 
   // C60: report the real send outcome, not intent.
   //   * If sendEmail !== true, skip entirely.
@@ -574,7 +641,7 @@ export async function deleteUser(req, res) {
   if (sendEmail === true) {
     if (!recipient || !recipient.includes('@')) {
       console.warn(
-        `[Deactivate] sendEmail requested but user #${id} has no usable email on file; skipping.`
+        `[Deactivate] sendEmail requested but user #${targetId} has no usable email on file; skipping.`
       );
     } else {
       try {
@@ -598,7 +665,7 @@ export async function deleteUser(req, res) {
     req.user.email,
     'user.deactivated',
     'user',
-    parseInt(id),
+    targetId,
     { reason: reason || null, sendEmail: !!sendEmail }
   );
 
@@ -694,8 +761,10 @@ export async function listOrganizations(req, res) {
     return res.status(err.status || 403).json({ error: err.message });
   }
 
-  const { search, plan, page = 1, limit = 50 } = req.query;
-  const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+  const { search, plan, page = 1 } = req.query;
+  // C61: clamp limit to prevent pool-exhaustion DoS.
+  const limit = clampLimit(req.query.limit, 50);
+  const offset = (Math.max(1, parseInt(page)) - 1) * limit;
   const params = [];
   const conditions = [];
 
@@ -722,7 +791,7 @@ export async function listOrganizations(req, res) {
        ${where}
        ORDER BY o.created_at DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, parseInt(limit), offset]
+      [...params, limit, offset]
     ),
   ]);
 
@@ -740,7 +809,7 @@ export async function listOrganizations(req, res) {
     })),
     total: parseInt(countResult.rows[0].count),
     page: parseInt(page),
-    limit: parseInt(limit),
+    limit, // C61: already clamped above
   });
 }
 
@@ -935,8 +1004,10 @@ export async function listAuditLogs(req, res) {
     return res.status(err.status || 403).json({ error: err.message });
   }
 
-  const { action, targetType, page = 1, limit = 50 } = req.query;
-  const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+  const { action, targetType, page = 1 } = req.query;
+  // C61: clamp limit to prevent pool-exhaustion DoS.
+  const limit = clampLimit(req.query.limit, 50);
+  const offset = (Math.max(1, parseInt(page)) - 1) * limit;
   const params = [];
   const conditions = [];
 
@@ -958,7 +1029,7 @@ export async function listAuditLogs(req, res) {
      ${where}
      ORDER BY al.created_at DESC
      LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-    [...params, parseInt(limit), offset]
+    [...params, limit, offset]
   );
 
   const count = await query(`SELECT COUNT(*) FROM audit_logs al ${where}`, params);
@@ -967,7 +1038,7 @@ export async function listAuditLogs(req, res) {
     logs: result.rows,
     total: parseInt(count.rows[0].count),
     page: parseInt(page),
-    limit: parseInt(limit),
+    limit, // C61: already clamped above
   });
 }
 
