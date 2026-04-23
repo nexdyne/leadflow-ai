@@ -529,7 +529,6 @@ function MichiganMapSection() {
         });
 
         map.on('load', () => {
-          loadedFlag = true;
           setMapLoaded(true);
           mapInstance.current = map;
 
@@ -659,17 +658,16 @@ function MichiganMapSection() {
           });
         });
 
-        // C65.1: only fall back to SVG on initial-load failure. After the
-        // map successfully loads, transient tile errors (network hiccups,
-        // rate limits) shouldn't kill the rendered map and re-show the
-        // SVG overlay on top. loadedFlag is a ref so the closure captures
-        // the live value, not a stale snapshot.
-        let loadedFlag = false;
+        // C65.2: map.on('error') fires during init for benign things like
+        // transient tile fetches — we must NEVER flip mapLoaded to false
+        // from here or the SVG fallback re-renders on top of the working
+        // live map. Initial state is already false, so if load never
+        // fires (invalid token, network down) the SVG stays visible and
+        // that's correct. Only the 'load' handler flips to true.
         map.on('error', (e) => {
           if (e && e.error && e.error.message) {
             console.warn('[Mapbox]', e.error.message);
           }
-          if (!loadedFlag) setMapLoaded(false);
         });
       } catch (e) {
         setMapLoaded(false);
