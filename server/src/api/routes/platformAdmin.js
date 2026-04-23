@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import {
   getDashboard, getAnalytics, getRevenue,
-  listUsers, getUser, suspendUser, reactivateUser, deleteUser, resetUserPassword,
+  listUsers, getUsersSummary, getUser, suspendUser, reactivateUser, deleteUser, resetUserPassword,
   listOrganizations, updateOrganization,
   listProjects, getProjectDetail,
   listAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
@@ -22,7 +22,10 @@ router.get('/analytics', getAnalytics);
 router.get('/revenue', getRevenue);
 
 // ─── User Management ────────────────────────────────────
+// IMPORTANT: /users/summary must come before /users/:id so the literal
+// "summary" path isn't captured as an :id param.
 router.get('/users', listUsers);
+router.get('/users/summary', getUsersSummary);
 router.get('/users/:id', getUser);
 router.put('/users/:id/suspend', suspendUser);
 router.put('/users/:id/reactivate', reactivateUser);

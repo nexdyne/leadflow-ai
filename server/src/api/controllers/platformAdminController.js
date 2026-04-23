@@ -55,7 +55,18 @@ export async function getDashboard(req, res) {
   }
 
   const [users, orgs, teams, projects, recentSignups, activeToday] = await Promise.all([
-    query("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE role = 'inspector') AS inspectors, COUNT(*) FILTER (WHERE role = 'client') AS clients, COUNT(*) FILTER (WHERE active = false) AS inactive, COUNT(*) FILTER (WHERE suspended_at IS NOT NULL) AS suspended FROM users WHERE is_platform_admin = false"),
+    // C57: split suspended (temporary ban) from deactivated (soft-delete).
+    // Before C57, `suspended` double-counted deactivated users because the
+    // deleteUser path reused suspended_at. Now the two are mutually
+    // exclusive columns, so COUNT FILTER on suspended_at IS NOT NULL is
+    // an accurate "truly suspended" count.
+    query(`SELECT COUNT(*) AS total,
+                  COUNT(*) FILTER (WHERE role = 'inspector') AS inspectors,
+                  COUNT(*) FILTER (WHERE role = 'client') AS clients,
+                  COUNT(*) FILTER (WHERE active = false) AS inactive,
+                  COUNT(*) FILTER (WHERE suspended_at IS NOT NULL) AS suspended,
+                  COUNT(*) FILTER (WHERE deactivated_at IS NOT NULL) AS deactivated
+           FROM users WHERE is_platform_admin = false`),
     query("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE subscription_plan = 'free') AS free, COUNT(*) FILTER (WHERE subscription_plan = 'pro') AS pro, COUNT(*) FILTER (WHERE subscription_plan = 'team') AS team_plan, COUNT(*) FILTER (WHERE subscription_plan = 'enterprise') AS enterprise FROM organizations"),
     query("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE active = true) AS active FROM teams"),
     query("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE is_deleted = false) AS active, COUNT(*) FILTER (WHERE is_draft = true AND is_deleted = false) AS drafts FROM projects"),
@@ -70,6 +81,7 @@ export async function getDashboard(req, res) {
       clients: parseInt(users.rows[0].clients),
       inactive: parseInt(users.rows[0].inactive),
       suspended: parseInt(users.rows[0].suspended),
+      deactivated: parseInt(users.rows[0].deactivated),
     },
     organizations: {
       total: parseInt(orgs.rows[0].total),
@@ -155,9 +167,24 @@ export async function listUsers(req, res) {
     params.push(role);
     conditions.push(`u.role = $${params.length}`);
   }
-  if (status === 'active') conditions.push('u.active = true AND u.suspended_at IS NULL');
-  if (status === 'suspended') conditions.push('u.suspended_at IS NOT NULL');
-  if (status === 'inactive') conditions.push('u.active = false');
+  // C57: three distinct status filters. `inactive` is preserved for
+  // backward-compatibility with the pre-C58 frontend and means "anyone
+  // who isn't active" — it catches both suspended and deactivated rows.
+  // The new `deactivated` filter returns ONLY soft-deleted rows, and
+  // `suspended` now excludes deactivated rows (prior releases conflated
+  // them because both states wrote to suspended_at/suspended_reason).
+  if (status === 'active') {
+    conditions.push('u.active = true AND u.suspended_at IS NULL AND u.deactivated_at IS NULL');
+  }
+  if (status === 'suspended') {
+    conditions.push('u.suspended_at IS NOT NULL AND u.deactivated_at IS NULL');
+  }
+  if (status === 'deactivated') {
+    conditions.push('u.deactivated_at IS NOT NULL');
+  }
+  if (status === 'inactive') {
+    conditions.push('u.active = false');
+  }
 
   const validSorts = ['created_at', 'email', 'full_name', 'last_login_at'];
   const sortCol = validSorts.includes(sort) ? sort : 'created_at';
@@ -169,7 +196,9 @@ export async function listUsers(req, res) {
     query(`SELECT COUNT(*) FROM users u WHERE ${where}`, params),
     query(
       `SELECT u.id, u.email, u.full_name, u.company_name, u.role, u.designation,
-              u.is_primary_admin, u.active, u.suspended_at, u.suspended_reason,
+              u.is_primary_admin, u.active,
+              u.suspended_at, u.suspended_reason,
+              u.deactivated_at, u.deactivated_reason,
               u.last_login_at, u.created_at, u.organization_id,
               o.name AS org_name, o.subscription_plan,
               (SELECT COUNT(*) FROM team_members tm WHERE tm.user_id = u.id) AS team_count,
@@ -187,7 +216,15 @@ export async function listUsers(req, res) {
     users: usersResult.rows.map(u => ({
       id: u.id, email: u.email, fullName: u.full_name, companyName: u.company_name,
       role: u.role, designation: u.designation, isPrimaryAdmin: u.is_primary_admin,
-      active: u.active, suspendedAt: u.suspended_at, suspendedReason: u.suspended_reason,
+      active: u.active,
+      suspendedAt: u.suspended_at, suspendedReason: u.suspended_reason,
+      deactivatedAt: u.deactivated_at, deactivatedReason: u.deactivated_reason,
+      // C57: server-derived status so the frontend never has to guess.
+      // Invariant from migration 032: at most one of suspended_at /
+      // deactivated_at is non-null.
+      status: u.deactivated_at ? 'deactivated'
+            : u.suspended_at   ? 'suspended'
+            : 'active',
       lastLoginAt: u.last_login_at, createdAt: u.created_at,
       organizationId: u.organization_id, orgName: u.org_name,
       subscriptionPlan: u.subscription_plan,
@@ -196,6 +233,76 @@ export async function listUsers(req, res) {
     total: parseInt(countResult.rows[0].count),
     page: parseInt(page),
     limit: parseInt(limit),
+  });
+}
+
+// GET /api/platform/users/summary — counts per status × role.
+//
+// C57: supports the C58 UsersPanel redesign. The panel renders three
+// segmented tabs (Active / Suspended / Deactivated) each showing a
+// count, and a role-chip row (All / Inspectors / Clients) whose per-chip
+// count reflects the CURRENTLY-selected status tab.
+//
+// Single SQL query, one table scan, COUNT FILTER clauses aggregate all
+// six (status × role) combinations plus the three status totals. The
+// partial index on deactivated_at (migration 032) keeps the filter cheap.
+//
+// Response shape:
+//   {
+//     total:       <int>,   // all non-platform-admin users
+//     active:      <int>,
+//     suspended:   <int>,
+//     deactivated: <int>,
+//     byRole: {
+//       inspector: { active, suspended, deactivated, total },
+//       client:    { active, suspended, deactivated, total }
+//     }
+//   }
+export async function getUsersSummary(req, res) {
+  try {
+    await requirePlatformAdmin(req.user.userId);
+  } catch (err) {
+    return res.status(err.status || 403).json({ error: err.message });
+  }
+
+  const result = await query(`
+    SELECT
+      COUNT(*) AS total,
+      COUNT(*) FILTER (WHERE active = true  AND suspended_at IS NULL AND deactivated_at IS NULL) AS active,
+      COUNT(*) FILTER (WHERE suspended_at   IS NOT NULL AND deactivated_at IS NULL) AS suspended,
+      COUNT(*) FILTER (WHERE deactivated_at IS NOT NULL) AS deactivated,
+      COUNT(*) FILTER (WHERE role = 'inspector') AS inspector_total,
+      COUNT(*) FILTER (WHERE role = 'inspector' AND active = true AND suspended_at IS NULL AND deactivated_at IS NULL) AS inspector_active,
+      COUNT(*) FILTER (WHERE role = 'inspector' AND suspended_at IS NOT NULL AND deactivated_at IS NULL) AS inspector_suspended,
+      COUNT(*) FILTER (WHERE role = 'inspector' AND deactivated_at IS NOT NULL) AS inspector_deactivated,
+      COUNT(*) FILTER (WHERE role = 'client')    AS client_total,
+      COUNT(*) FILTER (WHERE role = 'client'    AND active = true AND suspended_at IS NULL AND deactivated_at IS NULL) AS client_active,
+      COUNT(*) FILTER (WHERE role = 'client'    AND suspended_at IS NOT NULL AND deactivated_at IS NULL) AS client_suspended,
+      COUNT(*) FILTER (WHERE role = 'client'    AND deactivated_at IS NOT NULL) AS client_deactivated
+    FROM users
+    WHERE is_platform_admin = false
+  `);
+
+  const r = result.rows[0];
+  res.json({
+    total:       parseInt(r.total),
+    active:      parseInt(r.active),
+    suspended:   parseInt(r.suspended),
+    deactivated: parseInt(r.deactivated),
+    byRole: {
+      inspector: {
+        total:       parseInt(r.inspector_total),
+        active:      parseInt(r.inspector_active),
+        suspended:   parseInt(r.inspector_suspended),
+        deactivated: parseInt(r.inspector_deactivated),
+      },
+      client: {
+        total:       parseInt(r.client_total),
+        active:      parseInt(r.client_active),
+        suspended:   parseInt(r.client_suspended),
+        deactivated: parseInt(r.client_deactivated),
+      },
+    },
   });
 }
 
@@ -247,7 +354,14 @@ export async function getUser(req, res) {
     user: {
       id: u.id, email: u.email, fullName: u.full_name, companyName: u.company_name,
       role: u.role, designation: u.designation, isPrimaryAdmin: u.is_primary_admin,
-      active: u.active, suspendedAt: u.suspended_at, suspendedReason: u.suspended_reason,
+      active: u.active,
+      suspendedAt: u.suspended_at, suspendedReason: u.suspended_reason,
+      deactivatedAt: u.deactivated_at, deactivatedReason: u.deactivated_reason,
+      // C57: server-derived status. Mirrors the listUsers response so the
+      // frontend never has to reproduce the precedence rule.
+      status: u.deactivated_at ? 'deactivated'
+            : u.suspended_at   ? 'suspended'
+            : 'active',
       lastLoginAt: u.last_login_at, createdAt: u.created_at, updatedAt: u.updated_at,
       organizationId: u.organization_id, orgName: u.org_name,
       subscriptionPlan: u.subscription_plan, phone: u.phone,
@@ -274,6 +388,22 @@ export async function suspendUser(req, res) {
   // silently succeeds with 0 rows affected and the admin sees a fake "success".
   if (parseInt(id, 10) === req.user.userId) {
     return res.status(400).json({ error: 'Cannot suspend your own account — ask another platform admin.' });
+  }
+
+  // C57: prevent suspending a deactivated user. The migration-032 CHECK
+  // constraint would reject the write anyway, but returning a clear 400
+  // beats a 500 + DB error leaking.
+  const existing = await query(
+    'SELECT deactivated_at FROM users WHERE id = $1 AND is_platform_admin = false',
+    [id]
+  );
+  if (existing.rows.length === 0) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  if (existing.rows[0].deactivated_at !== null) {
+    return res.status(400).json({
+      error: 'Cannot suspend a deactivated user — reactivate them first, then suspend if needed.',
+    });
   }
 
   await query(
@@ -319,8 +449,32 @@ export async function reactivateUser(req, res) {
     return res.status(400).json({ error: 'Cannot reactivate your own account — your account isn\'t managed from this list.' });
   }
 
+  // C57: clear BOTH suspended_* and deactivated_* pairs. Before C57 the
+  // UI's Reactivate button only worked for suspended users because the
+  // "deactivated" state wasn't materially different. Now that the two
+  // states are distinct, the same Reactivate action has to handle both
+  // so an admin can undo either decision without knowing which case
+  // they're in. The migration-032 CHECK constraint guarantees only one
+  // of the two columns is non-null at a time, so clearing both is safe.
+  //
+  // Capture the prior status so the audit log records whether this was
+  // a reactivation from suspension vs from deactivation. Useful when
+  // scanning history later to answer "when did this account come back".
+  const prior = await query(
+    'SELECT suspended_at, deactivated_at FROM users WHERE id = $1',
+    [id]
+  );
+  const wasSuspended   = !!prior.rows[0]?.suspended_at;
+  const wasDeactivated = !!prior.rows[0]?.deactivated_at;
+
   await query(
-    `UPDATE users SET suspended_at = NULL, suspended_reason = NULL, active = true, updated_at = NOW()
+    `UPDATE users SET
+        suspended_at       = NULL,
+        suspended_reason   = NULL,
+        deactivated_at     = NULL,
+        deactivated_reason = NULL,
+        active             = true,
+        updated_at         = NOW()
      WHERE id = $1`,
     [id]
   );
@@ -331,12 +485,29 @@ export async function reactivateUser(req, res) {
       .catch(err => console.error('Account reactivated email failed:', err.message));
   }
 
-  await auditLog(req.user.userId, req.user.email, 'user.reactivated', 'user', parseInt(id), {});
+  await auditLog(
+    req.user.userId,
+    req.user.email,
+    'user.reactivated',
+    'user',
+    parseInt(id),
+    { priorStatus: wasDeactivated ? 'deactivated' : (wasSuspended ? 'suspended' : 'active') }
+  );
 
   res.json({ success: true });
 }
 
-// DELETE /api/platform/users/:id — soft-delete a user (set active = false permanently)
+// DELETE /api/platform/users/:id — deactivate a user (soft-delete).
+//
+// C57: the deactivation lifecycle now has its own columns (deactivated_at
+// + deactivated_reason) separate from suspended_at/suspended_reason. A
+// deactivation clears any prior suspension — the two states are mutually
+// exclusive per migration 032's CHECK constraint. Audit action is
+// user.deactivated; callers reading older audit history may still see
+// user.deleted entries from pre-C57 events.
+//
+// Optional body: { reason?: string } — user-facing reason recorded on
+// the row. C59 will add { sendEmail: boolean } for opt-in notification.
 export async function deleteUser(req, res) {
   try {
     await requirePlatformAdmin(req.user.userId);
@@ -345,27 +516,41 @@ export async function deleteUser(req, res) {
   }
 
   const { id } = req.params;
+  const { reason } = req.body || {};
 
   // C53: block self-deactivation before any DB work.
   if (parseInt(id, 10) === req.user.userId) {
     return res.status(400).json({ error: 'Cannot deactivate your own account — ask another platform admin.' });
   }
 
-  // Don't delete platform admins
+  // Don't deactivate platform admins
   const check = await query('SELECT is_platform_admin FROM users WHERE id = $1', [id]);
   if (check.rows.length === 0) return res.status(404).json({ error: 'User not found' });
   if (check.rows[0].is_platform_admin) return res.status(403).json({ error: 'Cannot deactivate platform admin' });
 
   await query(
-    `UPDATE users SET active = false, suspended_at = NOW(), suspended_reason = 'Account deleted by platform admin', updated_at = NOW()
-     WHERE id = $1`,
-    [id]
+    `UPDATE users SET
+        active             = false,
+        deactivated_at     = NOW(),
+        deactivated_reason = $1,
+        suspended_at       = NULL,
+        suspended_reason   = NULL,
+        updated_at         = NOW()
+     WHERE id = $2`,
+    [reason || 'Account deactivated by platform admin', id]
   );
 
   // Revoke sessions
   await query('UPDATE sessions SET is_revoked = true WHERE user_id = $1', [id]);
 
-  await auditLog(req.user.userId, req.user.email, 'user.deleted', 'user', parseInt(id), {});
+  await auditLog(
+    req.user.userId,
+    req.user.email,
+    'user.deactivated',
+    'user',
+    parseInt(id),
+    { reason: reason || null }
+  );
 
   res.json({ success: true });
 }
