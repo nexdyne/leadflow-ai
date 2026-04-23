@@ -529,6 +529,7 @@ function MichiganMapSection() {
         });
 
         map.on('load', () => {
+          loadedFlag = true;
           setMapLoaded(true);
           mapInstance.current = map;
 
@@ -658,8 +659,17 @@ function MichiganMapSection() {
           });
         });
 
-        map.on('error', () => {
-          setMapLoaded(false);
+        // C65.1: only fall back to SVG on initial-load failure. After the
+        // map successfully loads, transient tile errors (network hiccups,
+        // rate limits) shouldn't kill the rendered map and re-show the
+        // SVG overlay on top. loadedFlag is a ref so the closure captures
+        // the live value, not a stale snapshot.
+        let loadedFlag = false;
+        map.on('error', (e) => {
+          if (e && e.error && e.error.message) {
+            console.warn('[Mapbox]', e.error.message);
+          }
+          if (!loadedFlag) setMapLoaded(false);
         });
       } catch (e) {
         setMapLoaded(false);
