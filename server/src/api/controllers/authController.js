@@ -15,8 +15,43 @@ const VALID_DESIGNATIONS = [
   'project_designer',
 ];
 
+// ─── C76: lightweight per-IP rate limits ─────────────
+// Same in-memory pattern used in supportController. Not cluster-safe,
+// but the app runs as a single Node process on Railway so the Map
+// survives for the lifetime of the instance. A bot hitting /register
+// or /forgot-password from one IP can waste Resend quota fast — we
+// cap submissions so abuse costs scale linearly with distinct IPs,
+// not exponentially with a single attacker. Separate logs per
+// endpoint so spamming register doesn't affect forgot-password.
+const registerLog = new Map();     // ip -> [timestamps]
+const forgotPwLog = new Map();     // ip -> [timestamps]
+function rateLimitCheck(logMap, ip, maxPerHour) {
+  if (!ip) return true;
+  const now = Date.now();
+  const cutoff = now - 60 * 60 * 1000;
+  const hits = (logMap.get(ip) || []).filter(t => t > cutoff);
+  hits.push(now);
+  logMap.set(ip, hits);
+  return hits.length <= maxPerHour;
+}
+function clientIp(req) {
+  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || null;
+}
+
 export async function register(req, res) {
   const { email, password, fullName, companyName, role, designation } = req.body;
+
+  // C76: rate limit before heavy work (DB lookups + password hashing).
+  // 10 signups per hour per IP is generous for a legit firm onboarding
+  // teammates one by one; anything above that is bot territory. The
+  // primary cost being defended against is Resend quota + bcrypt CPU
+  // + DB rows, not account-takeover (emails are single-use).
+  if (!rateLimitCheck(registerLog, clientIp(req), 10)) {
+    return res.status(429).json({
+      error: 'Too many signup attempts from this address. Please try again later.',
+      code: 'RATE_LIMIT',
+    });
+  }
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required', code: 'VALIDATION_ERROR' });
@@ -433,6 +468,18 @@ export async function forgotPassword(req, res) {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Email is required', code: 'VALIDATION_ERROR' });
+  }
+
+  // C76: rate limit to stop an attacker from spamming a victim's inbox
+  // with password-reset emails or enumerating addresses at scale. We
+  // cap at 5 per hour per IP — enough for a legit user to legitimately
+  // retry after typos without blocking them, tight enough that the
+  // abuse vector costs more than it's worth.
+  if (!rateLimitCheck(forgotPwLog, clientIp(req), 5)) {
+    return res.status(429).json({
+      error: 'Too many password reset requests. Please try again later.',
+      code: 'RATE_LIMIT',
+    });
   }
 
   // Always return success to prevent email enumeration
