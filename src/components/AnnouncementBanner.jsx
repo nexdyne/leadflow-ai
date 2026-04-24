@@ -5,7 +5,29 @@ export default function AnnouncementBanner() {
   const [announcements, setAnnouncements] = useState([]);
 
   useEffect(() => {
+    // C75: initial fetch on mount, then poll every 2 minutes so users
+    // mid-session pick up newly-published announcements (e.g., a
+    // scheduled-downtime notice or a critical compliance update) within
+    // 120 s rather than only on page reload. The endpoint is cheap
+    // (single query, active=true + not-expired) and the payload is a
+    // small array; 2 minutes is the right balance between responsiveness
+    // and needless load. Pause when tab hidden (visibilitychange) to
+    // cut wasted cycles on background tabs.
     loadAnnouncements();
+    const POLL_MS = 120 * 1000;
+    let intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') loadAnnouncements();
+    }, POLL_MS);
+    // When a hidden tab becomes visible again, fetch immediately so the
+    // user does not wait up to 2 min for the next poll tick.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') loadAnnouncements();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   async function loadAnnouncements() {
