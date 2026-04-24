@@ -423,6 +423,77 @@ function StatsBar() {
     </section>
   );
 }
+// ─── Mission Strip ────────────────────────────────────────────
+// C68: brought back the "Every child deserves a lead-safe home" mission
+// statement that David flagged he wanted to keep from the old
+// CompanySection. C67 removed it along with the rest of that section
+// because the execution was startup-marketing (giant orange gradient
+// medallion + "built by inspectors" dual-column layout). The MESSAGE
+// itself is entirely appropriate for this audience — HUD's Healthy
+// Homes program uses the same phrase, CDC uses mission language in
+// exactly this register, EPA leads with mission on epa.gov. The issue
+// was always execution, not content.
+//
+// This strip is typography-led (no illustration medallion), sits on the
+// same navy the hero fades into so it reads as one continuous regulatory
+// surface, and grounds the mission in an authority citation line so it
+// reads as a public-health statement rather than a marketing slogan.
+// Placement between StatsBar and PlatformSection follows the PSA
+// rhythm: what-the-law-says (hero) → what-we-do (stats) → why-it-
+// matters (mission) → how-it-works (platform).
+function MissionStrip() {
+  return (
+    <section style={{
+      background: `linear-gradient(180deg, ${COLORS.navyMid} 0%, ${COLORS.navy} 100%)`,
+      padding: '72px 24px',
+      borderBottom: '1px solid rgba(255,255,255,0.06)',
+    }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
+        <div style={{
+          fontSize: 12, fontWeight: 700, color: COLORS.orangeGlow,
+          textTransform: 'uppercase', letterSpacing: 2,
+          marginBottom: 16,
+        }}>
+          Our mission
+        </div>
+
+        <h2 style={{
+          fontSize: 40, fontWeight: 800, color: COLORS.white,
+          letterSpacing: '-1px', lineHeight: 1.15,
+          margin: '0 0 24px',
+        }}>
+          Every child deserves a lead-safe home.
+        </h2>
+
+        <p style={{
+          fontSize: 17, lineHeight: 1.7,
+          color: 'rgba(255,255,255,0.72)',
+          margin: '0 auto 32px',
+          maxWidth: 620,
+        }}>
+          Lead-based paint in pre-1978 housing remains the leading source of childhood lead exposure in Michigan. Every LIRA, risk assessment, and clearance report completed on this platform brings the state closer to eliminating it.
+        </p>
+
+        {/* Authority line — keeps the mission from reading as a slogan
+            and anchors it to the statutes LeadFlow is built against.
+            Monospace treatment mirrors the citation header style used in
+            the hero's RegCitationCard so the two pieces feel related. */}
+        <div style={{
+          display: 'inline-block',
+          padding: '8px 16px',
+          borderTop: '1px solid rgba(255,255,255,0.12)',
+          fontSize: 12,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          color: 'rgba(255,255,255,0.5)',
+          letterSpacing: 0.3,
+        }}>
+          Authority: Michigan PA 55 of 1998 · Part 551, MCL 333.5451 et seq. · 40 CFR Part 745
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── Platform Section ─────────────────────────────────────────
 function PlatformSection() {
   return (
@@ -1676,6 +1747,7 @@ export default function LandingPage() {
       <Navbar scrolled={scrolled} />
       <HeroSection />
       <StatsBar />
+      <MissionStrip />
       <PlatformSection />
       <FeaturesGrid />
       <MichiganMapSection />
