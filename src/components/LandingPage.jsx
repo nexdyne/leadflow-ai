@@ -532,7 +532,7 @@ function MissionStrip() {
 // ─── Platform Section ─────────────────────────────────────────
 function PlatformSection() {
   return (
-    <section id="platform" style={{ padding: '100px 24px', background: COLORS.white }}>
+    <section id="platform" style={{ padding: '100px 24px', background: COLORS.paleBlue }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 64 }}>
           <h2 style={{ fontSize: 42, fontWeight: 800, color: COLORS.navy, letterSpacing: '-1px', margin: '0 0 16px' }}>
@@ -616,7 +616,7 @@ function FeaturesGrid() {
   ];
 
   return (
-    <section id="features" style={{ padding: '100px 24px', background: COLORS.gray50 }}>
+    <section id="features" style={{ padding: '100px 24px', background: COLORS.white }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 64 }}>
           <h2 style={{ fontSize: 42, fontWeight: 800, color: COLORS.navy, letterSpacing: '-1px', margin: '0 0 16px' }}>
@@ -994,7 +994,7 @@ function ResourcesSection() {
   };
 
   return (
-    <section id="resources" style={{ padding: '100px 24px', background: COLORS.gray50 }}>
+    <section id="resources" style={{ padding: '100px 24px', background: COLORS.paleBlue }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <h2 style={{ fontSize: 42, fontWeight: 800, color: COLORS.navy, textAlign: 'center', margin: '0 0 16px', letterSpacing: '-1px' }}>
           News and resources
@@ -1184,7 +1184,7 @@ function SupportSection() {
   const labelStyle = { display: 'block', fontSize: 13, fontWeight: 600, color: COLORS.gray700, marginBottom: 6 };
 
   return (
-    <section id="support" style={{ padding: '100px 24px', background: COLORS.white }}>
+    <section id="support" style={{ padding: '100px 24px', background: COLORS.paleBlue }}>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 48 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderRadius: 999, background: COLORS.orangeLight, marginBottom: 20 }}>
@@ -1422,7 +1422,7 @@ function DemoRequestSection() {
   return (
     <section id="demo" style={{
       padding: '100px 24px',
-      background: `linear-gradient(180deg, ${COLORS.gray50} 0%, ${COLORS.white} 100%)`,
+      background: COLORS.white,
     }}>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 48 }}>
