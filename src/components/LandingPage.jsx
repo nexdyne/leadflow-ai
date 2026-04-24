@@ -448,52 +448,66 @@ function MissionStrip() {
       padding: '72px 24px',
       borderBottom: '1px solid rgba(255,255,255,0.06)',
     }}>
-      <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
-        <div style={{
-          fontSize: 12, fontWeight: 700, color: COLORS.orangeGlow,
-          textTransform: 'uppercase', letterSpacing: 2,
-          marginBottom: 16,
-        }}>
-          Our mission
+      <div style={{
+        maxWidth: 1180, margin: '0 auto',
+        display: 'flex', alignItems: 'center', gap: 64,
+      }}>
+        {/* C69: text left, image right. Mirrors the EPA PSA layout. */}
+        <div style={{ flex: 1, maxWidth: 620 }}>
+          <div style={{
+            fontSize: 12, fontWeight: 700, color: COLORS.orangeGlow,
+            textTransform: 'uppercase', letterSpacing: 2,
+            marginBottom: 16,
+          }}>
+            Our mission
+          </div>
+          <h2 style={{
+            fontSize: 40, fontWeight: 800, color: COLORS.white,
+            letterSpacing: '-1px', lineHeight: 1.15,
+            margin: '0 0 24px',
+          }}>
+            Every child deserves a lead-safe home.
+          </h2>
+          <p style={{
+            fontSize: 17, lineHeight: 1.7,
+            color: 'rgba(255,255,255,0.72)',
+            margin: '0 0 28px',
+            maxWidth: 560,
+          }}>
+            Lead-based paint in pre-1978 housing remains the leading source of childhood lead exposure in Michigan. Every LIRA, risk assessment, and clearance report completed on this platform brings the state closer to eliminating it.
+          </p>
+          <div style={{
+            display: 'inline-block',
+            padding: '10px 14px',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 6,
+            fontSize: 12,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            color: 'rgba(255,255,255,0.55)',
+            letterSpacing: 0.3,
+            lineHeight: 1.5,
+          }}>
+            Authority: Michigan PA 55 of 1998 · Part 551, MCL 333.5451 et seq. · 40 CFR Part 745
+          </div>
         </div>
-
-        <h2 style={{
-          fontSize: 40, fontWeight: 800, color: COLORS.white,
-          letterSpacing: '-1px', lineHeight: 1.15,
-          margin: '0 0 24px',
-        }}>
-          Every child deserves a lead-safe home.
-        </h2>
-
-        <p style={{
-          fontSize: 17, lineHeight: 1.7,
-          color: 'rgba(255,255,255,0.72)',
-          margin: '0 auto 32px',
-          maxWidth: 620,
-        }}>
-          Lead-based paint in pre-1978 housing remains the leading source of childhood lead exposure in Michigan. Every LIRA, risk assessment, and clearance report completed on this platform brings the state closer to eliminating it.
-        </p>
-
-        {/* Authority line — keeps the mission from reading as a slogan
-            and anchors it to the statutes LeadFlow is built against.
-            Monospace treatment mirrors the citation header style used in
-            the hero's RegCitationCard so the two pieces feel related. */}
-        <div style={{
-          display: 'inline-block',
-          padding: '8px 16px',
-          borderTop: '1px solid rgba(255,255,255,0.12)',
-          fontSize: 12,
-          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-          color: 'rgba(255,255,255,0.5)',
-          letterSpacing: 0.3,
-        }}>
-          Authority: Michigan PA 55 of 1998 · Part 551, MCL 333.5451 et seq. · 40 CFR Part 745
+        <div style={{ flex: 1, maxWidth: 440, display: 'flex', justifyContent: 'center' }}>
+          <img
+            src="/child-Lead-Prevention.jpg"
+            alt="Child lead prevention - public health awareness"
+            loading="lazy"
+            style={{
+              width: '100%', height: 'auto',
+              borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.12)',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.35)',
+              display: 'block',
+            }}
+          />
         </div>
       </div>
     </section>
   );
 }
-
 // ─── Platform Section ─────────────────────────────────────────
 function PlatformSection() {
   return (
