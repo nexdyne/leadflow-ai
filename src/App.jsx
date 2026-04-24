@@ -43,6 +43,7 @@ import ForgotPasswordPage from './components/auth/ForgotPasswordPage';
 import ResetPasswordPage from './components/auth/ResetPasswordPage';
 import VerifyEmailPage from './components/auth/VerifyEmailPage';
 import LandingPage from './components/LandingPage';
+import ResourceRouter from './components/resources/ResourceRouter';
 
 // Simple path-based routing helpers
 function getInviteToken() {
@@ -97,6 +98,20 @@ function isLandingPath() {
   return p === '/' || p === '';
 }
 
+// C66: /resources and /resources/:slug are public — they share the
+// landing-page's "no auth required" gate. getResourceRoute returns null
+// when the URL is not a resource URL, {slug: null} for the index, or
+// {slug: 'michigan-lira-2026'} for a specific resource. The slug is
+// lowercased and matched liberally so a trailing slash or case mismatch
+// still resolves cleanly.
+function getResourceRoute() {
+  const p = (window.location.pathname || '').replace(/\/$/, '').toLowerCase();
+  if (p === '/resources') return { slug: null };
+  const m = p.match(/^\/resources\/([a-z0-9][a-z0-9\-]{0,80})$/);
+  if (m) return { slug: m[1] };
+  return null;
+}
+
 function shouldShowRegister() {
   const params = new URLSearchParams(window.location.search);
   return params.get('register') === 'true';
@@ -121,6 +136,9 @@ function AppContent() {
   const [resetPasswordToken, setResetPasswordToken] = useState(null);
   const [verifyEmailToken, setVerifyEmailToken] = useState(null);
   const [loginMode, setLoginMode] = useState(false);
+  // C66: public /resources surface. null when URL is not a resource URL,
+  // { slug: null } for the index, { slug: 'michigan-lira-2026' } for a page.
+  const [resourceRoute, setResourceRoute] = useState(getResourceRoute());
   const [notifications, setNotifications] = useState([]);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -163,6 +181,17 @@ function AppContent() {
     if (verifyToken) setVerifyEmailToken(verifyToken);
   }, []);
 
+  // C66: keep resourceRoute in sync with the URL. Resource pages call
+  // history.pushState + dispatch PopStateEvent to navigate without a
+  // full reload; this listener catches both those synthetic events and
+  // real back/forward button presses. It is cheap (single regex read)
+  // and scoped to URL changes, not every render.
+  useEffect(() => {
+    const sync = () => setResourceRoute(getResourceRoute());
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
   // Poll unread notifications every 30 seconds on ALL views (skip for platform admin)
   useEffect(() => {
     if (user?.isPlatformAdmin || user?.role === 'platform_admin') return;
@@ -181,6 +210,7 @@ function AppContent() {
 
     return () => clearInterval(interval);
   }, [currentView, user]);
+
 
   // FIX 1: Fetch notifications when dropdown opens
   const handleNotificationBellClick = async () => {
@@ -499,6 +529,17 @@ function AppContent() {
   // ─── Forgot Password ──────────────────────────────────
   if (forgotPasswordMode) {
     return <ForgotPasswordPage onBack={() => setForgotPasswordMode(false)} />;
+  }
+
+  // ─── Public /resources surface ────────────────────────
+  // C66: /resources and /resources/:slug are public — no auth needed.
+  // Placed BEFORE the auth gate so an anonymous visitor hitting a
+  // resource URL is not bounced to /login. An authenticated user who
+  // navigates to /resources still sees the resource; closing the tab
+  // and coming back leaves them where they were because this branch
+  // does not touch the auth state.
+  if (resourceRoute) {
+    return <ResourceRouter slug={resourceRoute.slug} />;
   }
 
   // ─── Client share-invite flow ──────────────────────────

@@ -789,12 +789,20 @@ function HowCard({ title, desc }) {
 }
 
 // ─── News & Resources ─────────────────────────────────────────
+// C66: home-page card grid now routes to real /resources/:slug pages
+// and drops a "See all resources" CTA underneath. The canonical catalog
+// lives in src/components/resources/_resourceTheme.js; the four cards
+// below duplicate that data intentionally so this section keeps working
+// even if the resources module is tree-shaken differently in the future.
+// If you add a new resource, add it to _resourceTheme RESOURCES and
+// (optionally) bump one of these four to keep the home-page teaser
+// fresh — the /resources index page will pick it up automatically.
 function ResourcesSection() {
   const resources = [
-    { type: 'REGULATION', title: 'Michigan LIRA Compliance Guide 2026', desc: 'Complete guide to Michigan Lead Inspection and Risk Assessment requirements under current EGLE regulations.', link: '#' },
-    { type: 'GUIDE', title: 'XRF Testing Best Practices', desc: 'Industry-standard procedures for XRF lead testing, calibration checks, and result interpretation for inspectors.', link: '#' },
-    { type: 'NEWS', title: 'EPA Lead Paint RRP Rule Updates', desc: 'Latest updates to EPA\'s Renovation, Repair, and Painting (RRP) rule affecting Michigan properties built before 1978.', link: '#' },
-    { type: 'TUTORIAL', title: 'Getting Started with LeadFlow AI', desc: 'Step-by-step walkthrough of setting up your inspection team, creating projects, and generating your first report.', link: '#' },
+    { slug: 'michigan-lira-2026', type: 'REGULATION', title: 'Michigan LIRA Compliance Guide 2026', desc: 'Complete guide to Michigan Lead Inspection and Risk Assessment requirements under current EGLE regulations.' },
+    { slug: 'xrf-testing',        type: 'GUIDE',      title: 'XRF Testing Best Practices',         desc: 'Industry-standard procedures for XRF lead testing, calibration checks, and result interpretation for inspectors.' },
+    { slug: 'epa-rrp-updates',    type: 'NEWS',       title: 'EPA Lead Paint RRP Rule Updates',    desc: 'Latest updates to EPA\'s Renovation, Repair, and Painting (RRP) rule affecting Michigan properties built before 1978.' },
+    { slug: 'getting-started',    type: 'TUTORIAL',   title: 'Getting Started with LeadFlow AI',   desc: 'Step-by-step walkthrough of setting up your inspection team, creating projects, and generating your first report.' },
   ];
 
   const typeColors = {
@@ -816,18 +824,97 @@ function ResourcesSection() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24 }}>
           {resources.map(r => (
-            <ResourceCard key={r.title} {...r} typeColor={typeColors[r.type]} />
+            <ResourceCard
+              key={r.slug}
+              type={r.type}
+              title={r.title}
+              desc={r.desc}
+              link={'/resources/' + r.slug}
+              typeColor={typeColors[r.type]}
+            />
           ))}
+        </div>
+
+        {/* C66: See-all CTA — the index page lists the full catalog with
+            a type filter + search. Kept simple and centered so it reads
+            as a clear secondary action rather than competing with the
+            cards above. */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 56 }}>
+          <SeeAllResourcesCTA />
         </div>
       </div>
     </section>
   );
 }
 
+function SeeAllResourcesCTA() {
+  const [hovered, setHovered] = useState(false);
+  // Same client-side nav trick as ResourceCard — keeps the transition
+  // snappy and preserves the auth state in App.jsx.
+  const handleClick = (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault();
+    try {
+      window.history.pushState(null, '', '/resources');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch (_) {
+      window.location.href = '/resources';
+    }
+  };
+  return (
+    <a
+      href="/resources"
+      onClick={handleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8,
+        padding: '14px 28px', borderRadius: 10,
+        background: hovered ? COLORS.navy : COLORS.white,
+        color: hovered ? COLORS.white : COLORS.navy,
+        border: '1px solid ' + COLORS.navy,
+        fontSize: 15, fontWeight: 600, textDecoration: 'none',
+        transition: 'all 0.2s',
+        boxShadow: hovered ? '0 8px 24px rgba(10,22,40,0.15)' : 'none',
+        transform: hovered ? 'translateY(-1px)' : 'none',
+      }}
+    >
+      See all resources
+      <span style={{
+        display: 'inline-block',
+        transition: 'transform 0.2s',
+        transform: hovered ? 'translateX(4px)' : 'none',
+      }}>→</span>
+    </a>
+  );
+}
+
 function ResourceCard({ type, title, desc, link, typeColor }) {
   const [hovered, setHovered] = useState(false);
+  // C66: intercept same-origin internal /resources/* clicks and route
+  // via history.pushState + PopStateEvent so App.jsx picks up the
+  // new URL without a full page reload. External links (anything
+  // starting with http) and non-/resources in-app links still
+  // receive the default browser behavior.
+  const handleClick = (e) => {
+    const href = link || '';
+    const isInternalResource = href.startsWith('/resources');
+    if (!isInternalResource) return;
+    // Let middle-click / modifier clicks open in a new tab normally.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault();
+    try {
+      window.history.pushState(null, '', href);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch (_) {
+      window.location.href = href;
+    }
+  };
   return (
-    <a href={link} style={{ textDecoration: 'none' }}
+    <a
+      href={link}
+      onClick={handleClick}
+      style={{ textDecoration: 'none' }}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     >
       <div style={{
