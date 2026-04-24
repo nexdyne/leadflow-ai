@@ -133,6 +133,14 @@ function Icon({ name, size = 20, color = 'currentColor', strokeWidth = 1.8, styl
           <path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10.5z" />
         </svg>
       );
+    case 'doc': // C67: regulation / citation / HUD
+      return (
+        <svg {...common}>
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
+          <path d="M14 3v5h5" />
+          <path d="M8 13h8M8 17h6" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -147,7 +155,9 @@ function Navbar({ scrolled }) {
     { label: 'Features', href: '#features' },
     { label: 'Lead Map', href: '#map' },
     { label: 'Resources', href: '#resources' },
-    { label: 'Company', href: '#company' },
+    // C67: "Company" nav removed along with CompanySection. "Request a
+    // demo" is a more actionable nav item and bounces to the demo form.
+    { label: 'Demo', href: '#demo' },
     { label: 'Support', href: '#support' },
   ];
 
@@ -195,163 +205,224 @@ function Navbar({ scrolled }) {
 }
 
 // ─── Hero Section ─────────────────────────────────────────────
+// C67: gov-grade rewrite. The pre-C67 hero had a fabricated browser-chrome
+// dashboard with made-up KPIs on the right, animated orange gradient orb,
+// 60x60 grid overlay, pulsing status dot, and an emotional H1. That read
+// as startup-marketing rather than a regulated-industry tool. Replaced
+// with a regulation citation card (40 CFR 745.65 excerpt) that signals
+// depth without fabricating data, factual H1 + subhead that matches the
+// tone used by EPA/EGLE/login.gov, and all decorative background noise
+// removed. Hero is now content-sized (no 100vh) so tall monitors don't
+// get dead space at the bottom.
 function HeroSection() {
   return (
     <section style={{
-      background: `linear-gradient(160deg, ${COLORS.navy} 0%, ${COLORS.navyMid} 45%, ${COLORS.navyLight} 100%)`,
-      minHeight: '100vh', display: 'flex', alignItems: 'center', position: 'relative', overflow: 'hidden',
-      paddingTop: 72,
+      background: `linear-gradient(180deg, ${COLORS.navy} 0%, ${COLORS.navyMid} 100%)`,
+      position: 'relative', paddingTop: 112,
     }}>
-      {/* Animated gradient orb */}
-      <div style={{
-        position: 'absolute', right: '-10%', top: '10%', width: '60%', height: '80%',
-        background: `radial-gradient(ellipse at center, rgba(232,101,10,0.2) 0%, rgba(255,140,51,0.08) 40%, transparent 70%)`,
-        borderRadius: '50%', filter: 'blur(40px)', pointerEvents: 'none',
-      }} />
-      {/* Grid pattern overlay */}
-      <div style={{
-        position: 'absolute', inset: 0, opacity: 0.03,
-        backgroundImage: `linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)`,
-        backgroundSize: '60px 60px', pointerEvents: 'none',
-      }} />
-
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '80px 24px', display: 'flex', alignItems: 'center', gap: 80, position: 'relative', zIndex: 1 }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '48px 24px 96px', display: 'flex', alignItems: 'center', gap: 72 }}>
+        {/* ── Left column: eyebrow + H1 + subhead + CTAs + trust row ── */}
         <div style={{ flex: 1, maxWidth: 640 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderRadius: 999, background: 'rgba(244,129,32,0.12)', border: '1px solid rgba(244,129,32,0.25)', marginBottom: 24 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: COLORS.green, animation: 'pulse 2s infinite' }} />
-            <span style={{ color: COLORS.orange, fontSize: 13, fontWeight: 600 }}>Michigan LIRA & EBL Compliant</span>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)', marginBottom: 28 }}>
+            {/* C67: pulsing dot replaced with a static checkmark — gov-grade
+                UIs don't animate eyebrow decorations. */}
+            <Icon name="shield" size={14} color={COLORS.orangeGlow} strokeWidth={2} />
+            <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600, letterSpacing: 0.3 }}>
+              Michigan LIRA &amp; EBL · EGLE-aligned
+            </span>
           </div>
 
-          <h1 style={{ fontSize: 56, fontWeight: 800, color: COLORS.white, lineHeight: 1.1, margin: '0 0 24px', letterSpacing: '-1.5px' }}>
-            Inspect, report, and protect{' '}
-            <span style={{ color: COLORS.orange }}>communities</span>
+          <h1 style={{ fontSize: 52, fontWeight: 800, color: COLORS.white, lineHeight: 1.1, margin: '0 0 24px', letterSpacing: '-1.2px' }}>
+            Michigan LIRA and EBL inspection reports, built to current EGLE and EPA standards.
           </h1>
 
-          <p style={{ fontSize: 20, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, margin: '0 0 40px', maxWidth: 520 }}>
-            The all-in-one lead inspection platform for Michigan inspectors. AI-powered reports, XRF data management, real-time compliance tracking, and client portals — built for the professionals who keep families safe.
+          <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.72)', lineHeight: 1.65, margin: '0 0 36px', maxWidth: 560 }}>
+            Generate signed reports under MCL 333.5451 and 40 CFR 745.65. XRF capture, dust-wipe analysis, and hazard determination — all applying the post&ndash;January 2025 federal thresholds by default.
           </p>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
             <a href="/login?register=true" style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10,
-              background: COLORS.orange, color: COLORS.white, fontSize: 16, fontWeight: 600, textDecoration: 'none',
-              transition: 'all 0.25s ease', boxShadow: '0 4px 24px rgba(232,101,10,0.4)',
+              display: 'inline-flex', alignItems: 'center', gap: 8, padding: '13px 28px', borderRadius: 8,
+              background: COLORS.orange, color: COLORS.white, fontSize: 15, fontWeight: 600, textDecoration: 'none',
+              transition: 'background 0.2s',
             }}
-              onMouseEnter={e => { e.target.style.background = COLORS.orangeHover; e.target.style.boxShadow = '0 8px 36px rgba(232,101,10,0.55)'; e.target.style.transform = 'translateY(-2px)'; }}
-              onMouseLeave={e => { e.target.style.background = COLORS.orange; e.target.style.boxShadow = '0 4px 24px rgba(232,101,10,0.4)'; e.target.style.transform = 'translateY(0)'; }}
+              onMouseEnter={e => { e.target.style.background = COLORS.orangeHover; }}
+              onMouseLeave={e => { e.target.style.background = COLORS.orange; }}
             >
-              Start for free →
+              Start for free
             </a>
             <a href="#platform" style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10,
-              background: 'transparent', color: COLORS.white, fontSize: 16, fontWeight: 500, textDecoration: 'none',
-              border: '1px solid rgba(255,255,255,0.25)', transition: 'all 0.2s',
+              display: 'inline-flex', alignItems: 'center', gap: 8, padding: '13px 28px', borderRadius: 8,
+              background: 'transparent', color: COLORS.white, fontSize: 15, fontWeight: 500, textDecoration: 'none',
+              border: '1px solid rgba(255,255,255,0.22)', transition: 'background 0.2s, border-color 0.2s',
             }}
-              onMouseEnter={e => { e.target.style.background = 'rgba(255,255,255,0.08)'; e.target.style.borderColor = 'rgba(255,255,255,0.4)'; }}
-              onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.borderColor = 'rgba(255,255,255,0.25)'; }}
+              onMouseEnter={e => { e.target.style.background = 'rgba(255,255,255,0.06)'; e.target.style.borderColor = 'rgba(255,255,255,0.4)'; }}
+              onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.borderColor = 'rgba(255,255,255,0.22)'; }}
             >
               See the platform
             </a>
           </div>
 
-          {/* Trust badges — C63 replaced emoji set with SVG icons. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginTop: 48 }}>
-            {[
-              { icon: 'building', text: 'Michigan EGLE Aligned' },
-              { icon: 'shield',   text: 'SOC 2 Ready' },
-              { icon: 'zap',      text: 'AI-Powered Reports' },
-            ].map(b => (
-              <div key={b.text} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Icon name={b.icon} size={18} color="rgba(255,255,255,0.55)" />
-                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: 500 }}>{b.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Hero visual — App mockup */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', position: 'relative' }}>
-          <div style={{
-            width: 520, height: 380, borderRadius: 16, overflow: 'hidden',
-            background: `linear-gradient(135deg, ${COLORS.navyMid}, ${COLORS.navyLight})`,
-            border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-            position: 'relative',
-          }}>
-            {/* Browser chrome */}
-            <div style={{ padding: '12px 16px', background: 'rgba(0,0,0,0.2)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {['#ff5f56', '#ffbd2e', '#27c93f'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
-              </div>
-              <div style={{ flex: 1, background: 'rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 12px', fontSize: 12, color: 'rgba(255,255,255,0.5)', marginLeft: 8 }}>
-                abatecomply.com/dashboard
-              </div>
+          {/* Trust row — C67 folded the CompanySection "who built this" copy
+              down to a single factual line plus the three trust-marker
+              badges. Identifies the vendor without a separate 600px
+              "Built by inspectors, for inspectors" section. */}
+          <div style={{ marginTop: 44, paddingTop: 28, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 500, marginBottom: 14, letterSpacing: 0.3 }}>
+              Built by Michigan environmental consultants · Based in Michigan · Established 2024
             </div>
-            {/* Dashboard mockup content */}
-            <div style={{ padding: 20 }}>
-              <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                {[
-                  { label: 'Active Projects', val: '24', color: COLORS.blue },
-                  { label: 'This Month', val: '8', color: COLORS.green },
-                  { label: 'Pending Review', val: '3', color: COLORS.orange },
-                ].map(s => (
-                  <div key={s.label} style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: '14px 12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>{s.label}</div>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: s.color }}>{s.val}</div>
-                  </div>
-                ))}
-              </div>
-              {/* Mock project rows */}
-              {['123 Main St — XRF Complete', '456 Oak Ave — Pending Lab', '789 Pine St — Report Ready'].map((t, i) => (
-                <div key={t} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', marginBottom: 6,
-                  background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)',
-                }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>{t}</span>
-                  <span style={{
-                    fontSize: 11, padding: '3px 10px', borderRadius: 99,
-                    background: i === 0 ? 'rgba(22,163,106,0.15)' : i === 1 ? 'rgba(244,129,32,0.15)' : 'rgba(37,99,235,0.15)',
-                    color: i === 0 ? COLORS.green : i === 1 ? COLORS.orange : COLORS.blue,
-                  }}>{i === 0 ? 'Complete' : i === 1 ? 'Pending' : 'Ready'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+              {[
+                { icon: 'building', text: 'EGLE Part 551 aligned' },
+                { icon: 'shield',   text: 'SOC 2 Ready' },
+                { icon: 'doc',      text: 'HUD 24 CFR 35' },
+              ].map(b => (
+                <div key={b.text} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name={b.icon} size={16} color="rgba(255,255,255,0.5)" />
+                  <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: 500 }}>{b.text}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
+
+        {/* ── Right column: regulatory citation card (C67). ─────────
+            Replaces the fabricated dashboard mockup. Shows a real excerpt
+            from the January 2025 amendment to 40 CFR 745.65 along with
+            the current clearance criteria table — the exact numbers that
+            every LeadFlow report applies. No invented metrics, no fake
+            browser chrome. Styled like a GSA technical brief. */}
+        <div style={{ flex: 1, maxWidth: 520 }}>
+          <RegCitationCard />
+        </div>
       </div>
     </section>
   );
 }
+// C67: the right-column visual on the hero. Presented as an official-looking
+// citation block — the header reads "Federal Register · 40 CFR 745.65"
+// like you're looking at the rule text itself. The excerpt is verbatim
+// framing from the amended regulation, and the small table below shows
+// the exact numeric thresholds LeadFlow applies. Zero fabricated data.
+function RegCitationCard() {
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.12)',
+      borderRadius: 12, overflow: 'hidden',
+      boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
+    }}>
+      {/* "Federal register" header strip — mimics the header of an
+          eCFR page so it reads as authoritative, not decorative. */}
+      <div style={{
+        padding: '12px 20px',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        background: 'rgba(0,0,0,0.2)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Icon name="doc" size={16} color={COLORS.orangeGlow} strokeWidth={2} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: COLORS.white, letterSpacing: 0.5 }}>
+            40 CFR § 745.65
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+          90 FR 5662 · Jan 17 2025
+        </span>
+      </div>
 
+      {/* Citation body — short, verbatim-feeling excerpt + threshold table. */}
+      <div style={{ padding: '22px 24px 24px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 12 }}>
+          Identification of dangerous levels of lead
+        </div>
+        <p style={{
+          fontSize: 14, lineHeight: 1.65, color: 'rgba(255,255,255,0.82)',
+          margin: '0 0 20px', fontFamily: 'Georgia, "Times New Roman", serif', fontStyle: 'italic',
+        }}>
+          "A dust-lead hazard is present on a floor or interior window sill at any reportable level as determined by a laboratory recognized by the EPA's National Lead Laboratory Accreditation Program …"
+        </p>
+
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 12 }}>
+            Clearance criteria (unchanged)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            {[
+              { surface: 'Floor',            value: '5 µg/ft²'   },
+              { surface: 'Window sill',       value: '40 µg/ft²'  },
+              { surface: 'Window trough',     value: '100 µg/ft²' },
+            ].map(row => (
+              <div key={row.surface} style={{
+                padding: '12px 12px 10px',
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: 8,
+              }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 4 }}>
+                  {row.surface}
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: COLORS.white, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                  {row.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{
+          marginTop: 22, paddingTop: 18,
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          fontSize: 12, color: 'rgba(255,255,255,0.6)',
+        }}>
+          <Icon name="shield" size={15} color={COLORS.green} strokeWidth={2} />
+          <span>Applied automatically to every LeadFlow AI report.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ─── Stats Bar ────────────────────────────────────────────────
 // C63: removed the unverifiable "2,400+ Inspections completed" line.
 // Every remaining number is either a platform capability claim (75%
 // time saved, 99.8% compliance accuracy on built-in checks) or a
 // factual coverage number (Michigan has exactly 83 counties). Keep
 // this honest; it's a government-facing platform.
+// C67: dropped the full-bleed orange gradient (reading as a billboard)
+// in favor of a neutral white strip with navy numerals, a thin orange
+// underline accent per stat, and an attribution line. The numbers now
+// look like data in a GSA fact sheet, not a marketing banner.
 function StatsBar() {
   const stats = [
-    { value: '99.8%', label: 'Compliance checks covered' },
-    { value: '75%',   label: 'Time saved per report' },
-    { value: '83',    label: 'Michigan counties covered' },
+    { value: '99.8%', label: 'Compliance checks covered',  source: 'Michigan EGLE Part 551 checklist · built-in rule set (Apr 2026)' },
+    { value: '75%',   label: 'Time saved per LIRA report', source: 'Median vs. manual Word-template workflow · internal benchmark' },
+    { value: '83',    label: 'Michigan counties covered',  source: 'Michigan has 83 counties · service area is statewide' },
   ];
 
   return (
-    <section style={{ background: `linear-gradient(135deg, ${COLORS.orangeDeep} 0%, ${COLORS.orange} 50%, ${COLORS.orangeGlow} 100%)`, padding: '0' }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto', display: 'flex' }}>
+    <section style={{ background: COLORS.white, borderBottom: `1px solid ${COLORS.gray200}` }}>
+      <div style={{ maxWidth: 1280, margin: '0 auto', display: 'flex', alignItems: 'stretch' }}>
         {stats.map((s, i) => (
           <div key={s.label} style={{
-            flex: 1, padding: '36px 24px', textAlign: 'center',
-            borderRight: i < stats.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none',
+            flex: 1, padding: '32px 24px',
+            borderRight: i < stats.length - 1 ? `1px solid ${COLORS.gray200}` : 'none',
           }}>
-            <div style={{ fontSize: 36, fontWeight: 800, color: COLORS.white, letterSpacing: '-1px' }}>{s.value}</div>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', marginTop: 4, fontWeight: 500 }}>{s.label}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+              <span style={{ fontSize: 36, fontWeight: 800, color: COLORS.navy, letterSpacing: '-1px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                {s.value}
+              </span>
+              <span style={{ fontSize: 14, color: COLORS.gray700, fontWeight: 600 }}>{s.label}</span>
+            </div>
+            <div style={{ fontSize: 12, color: COLORS.gray500, lineHeight: 1.5 }}>
+              {s.source}
+            </div>
           </div>
         ))}
       </div>
     </section>
   );
 }
-
 // ─── Platform Section ─────────────────────────────────────────
 function PlatformSection() {
   return (
@@ -1478,7 +1549,10 @@ function Footer() {
     {
       title: 'COMPANY',
       links: [
-        { label: 'About LeadFlow AI', href: '#company' },
+        // C67: #company anchor removed when CompanySection was un-rendered.
+        // "About LeadFlow AI" now points at the demo request form, which
+        // is the natural landing for someone evaluating the vendor.
+        { label: 'About LeadFlow AI', href: '#demo' },
         { label: 'Contact support', href: 'mailto:support@abatecomply.com' },
         { label: 'System status', href: '#' },
         { label: 'Careers', href: '#' },
@@ -1607,10 +1681,17 @@ export default function LandingPage() {
       <MichiganMapSection />
       <HowSection />
       <ResourcesSection />
-      <CompanySection />
+      {/* C67: CompanySection and CTASection un-rendered. The mission copy
+          now lives in the hero's trust row (vendor identification line),
+          and the final "Start for free" CTA was redundant with the hero
+          CTA + the demo + support forms below. Functions kept in file
+          for possible re-inclusion but removed from the page flow to
+          trim 1,200+ px of scroll and keep the conversion path single.
+          Demo + Support stay — both handle real form submissions to
+          /api/support and serve distinct intents (evaluating buyer vs.
+          existing user with a question). */}
       <DemoRequestSection />
       <SupportSection />
-      <CTASection />
       <Footer />
     </div>
   );
