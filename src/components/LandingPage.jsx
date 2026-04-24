@@ -930,7 +930,11 @@ function HowSection() {
   return (
     <section style={{
       padding: '100px 24px',
-      background: `linear-gradient(135deg, ${COLORS.orangeDeep} 0%, ${COLORS.orange} 40%, ${COLORS.orangeGlow} 100%)`,
+      // C71: was an amber/orange gradient left over from the pre-C70
+      // palette. Flipped to the blue family (blueDeep → blue → blueGlow)
+      // so the section sits inside the federal-blue register the CTAs
+      // already use. Same gradient shape, new hue family.
+      background: `linear-gradient(135deg, ${COLORS.blueDeep} 0%, ${COLORS.blue} 45%, ${COLORS.blueGlow} 100%)`,
     }}>
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <h2 style={{ fontSize: 42, fontWeight: 800, color: COLORS.white, textAlign: 'center', margin: '0 0 56px', letterSpacing: '-1px' }}>
