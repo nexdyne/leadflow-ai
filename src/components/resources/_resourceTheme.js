@@ -1,15 +1,30 @@
 // Shared theme tokens for the /resources surface. These mirror the
 // landing-page COLORS export so pages stay visually locked to the home
 // page — change them in one place when the brand updates.
+// C70: USWDS-adjacent federal palette. See LandingPage.jsx COLORS for
+// the full rationale. Legacy `orange*` keys aliased to amber so any
+// stray reference in a resource page renders muted rather than loud.
 export const COLORS = {
   navy: '#0a1628',
   navyLight: '#162440',
   navyMid: '#0f1d35',
-  orange: '#e8650a',
-  orangeDeep: '#d45800',
-  orangeHover: '#c44d00',
-  orangeLight: '#fef0e4',
-  orangeGlow: '#ff8c33',
+  federalNavy: '#0B2D68',
+  paleBlue: '#E8EEFA',
+  blue: '#2E7BE8',
+  blueHover: '#1E63C4',
+  blueDeep: '#164F9C',
+  blueGlow: '#5B9DF0',
+  blueLight: '#EEF4FE',
+  amber: '#F5A623',
+  amberDeep: '#D78A0E',
+  amberHover: '#B87608',
+  amberLight: '#FEF4DF',
+  amberGlow: '#FFC15E',
+  orange: '#F5A623',
+  orangeDeep: '#D78A0E',
+  orangeHover: '#B87608',
+  orangeLight: '#FEF4DF',
+  orangeGlow: '#FFC15E',
   white: '#ffffff',
   gray50: '#f9fafb',
   gray100: '#f3f4f6',
@@ -23,8 +38,7 @@ export const COLORS = {
   gray900: '#111827',
   teal: '#0d9488',
   red: '#dc2626',
-  green: '#16a34a',
-  blue: '#2563eb',
+  green: '#0FA040',
 };
 
 // Type tag color mapping — matches LandingPage.jsx ResourceCard.

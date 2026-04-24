@@ -1,15 +1,37 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // ─── Constants ────────────────────────────────────────────────
+// C70: USWDS-adjacent federal palette. The previous loud `#e8650a`
+// fire-engine orange was reading as consumer SaaS on a regulated-
+// industry site. New palette demotes orange to muted amber (used only
+// as a rare accent for eyebrows, branding, and risk-warning states)
+// and promotes bright federal blue as the primary CTA / action color,
+// matching login.gov / va.gov / cdc.gov. Naming convention:
+//   * `amber*` replaces the `orange*` set (warm accent, not CTA).
+//   * `blue*` is the new primary action color.
+//   * LF logo gradient intentionally still uses amberDeep > amberGlow
+//     because the logo is a branding asset, not a UI control.
 const COLORS = {
   navy: '#0a1628',
   navyLight: '#162440',
   navyMid: '#0f1d35',
-  orange: '#e8650a',
-  orangeDeep: '#d45800',
-  orangeHover: '#c44d00',
-  orangeLight: '#fef0e4',
-  orangeGlow: '#ff8c33',
+  federalNavy: '#0B2D68',
+  paleBlue: '#E8EEFA',
+  blue: '#2E7BE8',
+  blueHover: '#1E63C4',
+  blueDeep: '#164F9C',
+  blueGlow: '#5B9DF0',
+  blueLight: '#EEF4FE',
+  amber: '#F5A623',
+  amberDeep: '#D78A0E',
+  amberHover: '#B87608',
+  amberLight: '#FEF4DF',
+  amberGlow: '#FFC15E',
+  orange: '#F5A623',
+  orangeDeep: '#D78A0E',
+  orangeHover: '#B87608',
+  orangeLight: '#FEF4DF',
+  orangeGlow: '#FFC15E',
   white: '#ffffff',
   gray50: '#f9fafb',
   gray100: '#f3f4f6',
@@ -23,8 +45,7 @@ const COLORS = {
   gray900: '#111827',
   teal: '#0d9488',
   red: '#dc2626',
-  green: '#16a34a',
-  blue: '#2563eb',
+  green: '#0FA040',
 };
 
 const APP_URL = window.location.origin;
@@ -194,9 +215,9 @@ function Navbar({ scrolled }) {
             onMouseEnter={e => { e.target.style.background = 'rgba(255,255,255,0.1)'; e.target.style.borderColor = 'rgba(255,255,255,0.4)'; }}
             onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.borderColor = 'rgba(255,255,255,0.25)'; }}
           >Log in</a>
-          <a href="/login?register=true" style={{ color: COLORS.white, textDecoration: 'none', fontSize: 15, fontWeight: 600, padding: '8px 24px', borderRadius: 8, background: COLORS.orange, transition: 'all 0.2s' }}
-            onMouseEnter={e => { e.target.style.background = COLORS.orangeHover; e.target.style.transform = 'translateY(-1px)'; }}
-            onMouseLeave={e => { e.target.style.background = COLORS.orange; e.target.style.transform = 'translateY(0)'; }}
+          <a href="/login?register=true" style={{ color: COLORS.white, textDecoration: 'none', fontSize: 15, fontWeight: 600, padding: '8px 24px', borderRadius: 8, background: COLORS.blue, transition: 'all 0.2s' }}
+            onMouseEnter={e => { e.target.style.background = COLORS.blueHover; e.target.style.transform = 'translateY(-1px)'; }}
+            onMouseLeave={e => { e.target.style.background = COLORS.blue; e.target.style.transform = 'translateY(0)'; }}
           >Start for free</a>
         </div>
       </div>
@@ -243,11 +264,11 @@ function HeroSection() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
             <a href="/login?register=true" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8, padding: '13px 28px', borderRadius: 8,
-              background: COLORS.orange, color: COLORS.white, fontSize: 15, fontWeight: 600, textDecoration: 'none',
+              background: COLORS.blue, color: COLORS.white, fontSize: 15, fontWeight: 600, textDecoration: 'none',
               transition: 'background 0.2s',
             }}
-              onMouseEnter={e => { e.target.style.background = COLORS.orangeHover; }}
-              onMouseLeave={e => { e.target.style.background = COLORS.orange; }}
+              onMouseEnter={e => { e.target.style.background = COLORS.blueHover; }}
+              onMouseLeave={e => { e.target.style.background = COLORS.blue; }}
             >
               Start for free
             </a>
@@ -1208,7 +1229,7 @@ function SupportSection() {
                   <label style={labelStyle}>Your name</label>
                   <input type="text" value={form.name} onChange={onChange('name')} placeholder="Jane Inspector"
                     style={inputStyle}
-                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                     onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
@@ -1216,7 +1237,7 @@ function SupportSection() {
                   <label style={labelStyle}>Email <span style={{ color: COLORS.red }}>*</span></label>
                   <input type="email" value={form.email} onChange={onChange('email')} required placeholder="you@example.com"
                     style={inputStyle}
-                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                     onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
@@ -1227,7 +1248,7 @@ function SupportSection() {
                   <label style={labelStyle}>Phone (optional)</label>
                   <input type="tel" value={form.phone} onChange={onChange('phone')} placeholder="(555) 123-4567"
                     style={inputStyle}
-                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                     onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
@@ -1235,7 +1256,7 @@ function SupportSection() {
                   <label style={labelStyle}>Company (optional)</label>
                   <input type="text" value={form.company} onChange={onChange('company')} placeholder="Your company"
                     style={inputStyle}
-                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                     onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
@@ -1245,7 +1266,7 @@ function SupportSection() {
                 <label style={labelStyle}>What's this about?</label>
                 <select value={form.category} onChange={onChange('category')}
                   style={{ ...inputStyle, cursor: 'pointer' }}
-                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                   onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                 >
                   {CATEGORIES.map(c => (
@@ -1259,7 +1280,7 @@ function SupportSection() {
                 <input type="text" value={form.subject} onChange={onChange('subject')} required
                   maxLength={255} placeholder="Brief summary of your request"
                   style={inputStyle}
-                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                   onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                 />
               </div>
@@ -1269,7 +1290,7 @@ function SupportSection() {
                 <textarea value={form.message} onChange={onChange('message')} required
                   rows={6} maxLength={10000} placeholder="Tell us what's going on — include any error messages, screenshots you'd like to send, and steps to reproduce if it's a bug."
                   style={{ ...inputStyle, resize: 'vertical', minHeight: 140, lineHeight: 1.6 }}
-                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                   onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                 />
                 <div style={{ fontSize: 12, color: COLORS.gray400, marginTop: 4, textAlign: 'right' }}>
@@ -1297,13 +1318,13 @@ function SupportSection() {
                 <button type="submit" disabled={status === 'submitting'}
                   style={{
                     padding: '14px 32px', borderRadius: 10, border: 'none',
-                    background: status === 'submitting' ? COLORS.gray400 : COLORS.orange,
+                    background: status === 'submitting' ? COLORS.gray400 : COLORS.blue,
                     color: COLORS.white, fontSize: 15, fontWeight: 600,
                     cursor: status === 'submitting' ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s', boxShadow: '0 4px 16px rgba(232,101,10,0.25)',
+                    transition: 'all 0.2s', boxShadow: '0 4px 16px rgba(46,123,232,0.28)',
                   }}
-                  onMouseEnter={e => { if (status !== 'submitting') e.target.style.background = COLORS.orangeHover; }}
-                  onMouseLeave={e => { if (status !== 'submitting') e.target.style.background = COLORS.orange; }}
+                  onMouseEnter={e => { if (status !== 'submitting') e.target.style.background = COLORS.blueHover; }}
+                  onMouseLeave={e => { if (status !== 'submitting') e.target.style.background = COLORS.blue; }}
                 >
                   {status === 'submitting' ? 'Sending…' : 'Send request →'}
                 </button>
@@ -1456,14 +1477,14 @@ function DemoRequestSection() {
                 <div>
                   <label style={labelStyle}>Your name <span style={{ color: COLORS.red }}>*</span></label>
                   <input type="text" value={form.name} onChange={onChange('name')} required placeholder="Jane Inspector" style={inputStyle}
-                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                     onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
                 <div>
                   <label style={labelStyle}>Company</label>
                   <input type="text" value={form.company} onChange={onChange('company')} placeholder="Your company or organization" style={inputStyle}
-                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                     onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
@@ -1473,14 +1494,14 @@ function DemoRequestSection() {
                 <div>
                   <label style={labelStyle}>Work email <span style={{ color: COLORS.red }}>*</span></label>
                   <input type="email" value={form.email} onChange={onChange('email')} required placeholder="you@company.com" style={inputStyle}
-                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                     onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
                 <div>
                   <label style={labelStyle}>Phone (optional)</label>
                   <input type="tel" value={form.phone} onChange={onChange('phone')} placeholder="(555) 123-4567" style={inputStyle}
-                    onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                    onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                     onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                   />
                 </div>
@@ -1490,7 +1511,7 @@ function DemoRequestSection() {
                 <label style={labelStyle}>Preferred time for a call</label>
                 <input type="text" value={form.preferredTime} onChange={onChange('preferredTime')}
                   placeholder="e.g. weekday mornings EST, Fri afternoons" style={inputStyle}
-                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                   onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                 />
               </div>
@@ -1501,7 +1522,7 @@ function DemoRequestSection() {
                   rows={4} maxLength={4000}
                   placeholder="E.g. XRF data imports from my current workflow, or the client portal, or AI report generation on a real project."
                   style={{ ...inputStyle, resize: 'vertical', minHeight: 100, lineHeight: 1.6 }}
-                  onFocus={e => { e.target.style.borderColor = COLORS.orange; e.target.style.boxShadow = `0 0 0 3px ${COLORS.orangeLight}`; }}
+                  onFocus={e => { e.target.style.borderColor = COLORS.blue; e.target.style.boxShadow = `0 0 0 3px ${COLORS.blueLight}`; }}
                   onBlur={e => { e.target.style.borderColor = COLORS.gray300; e.target.style.boxShadow = 'none'; }}
                 />
               </div>
@@ -1523,13 +1544,13 @@ function DemoRequestSection() {
                 <button type="submit" disabled={status === 'submitting'}
                   style={{
                     padding: '14px 32px', borderRadius: 10, border: 'none',
-                    background: status === 'submitting' ? COLORS.gray400 : COLORS.orange,
+                    background: status === 'submitting' ? COLORS.gray400 : COLORS.blue,
                     color: COLORS.white, fontSize: 15, fontWeight: 600,
                     cursor: status === 'submitting' ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s', boxShadow: '0 4px 16px rgba(232,101,10,0.25)',
+                    transition: 'all 0.2s', boxShadow: '0 4px 16px rgba(46,123,232,0.28)',
                   }}
-                  onMouseEnter={e => { if (status !== 'submitting') e.target.style.background = COLORS.orangeHover; }}
-                  onMouseLeave={e => { if (status !== 'submitting') e.target.style.background = COLORS.orange; }}
+                  onMouseEnter={e => { if (status !== 'submitting') e.target.style.background = COLORS.blueHover; }}
+                  onMouseLeave={e => { if (status !== 'submitting') e.target.style.background = COLORS.blue; }}
                 >
                   {status === 'submitting' ? 'Sending…' : 'Request demo →'}
                 </button>
